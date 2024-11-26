@@ -36,11 +36,12 @@ export const recipeRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      const { ingredients, instructions, ...rest } = input;
       return prisma.recipe.create({
         data: {
-          ...input,
-          ingredients: input.ingredients,
-          instructions: input.instructions,
+          ...rest,
+          ingredients: JSON.stringify(ingredients),
+          instructions: JSON.stringify(instructions),
         },
       });
     }),
@@ -69,9 +70,15 @@ export const recipeRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      const { data } = input;
+      const updateData = {
+        ...data,
+        ingredients: data.ingredients ? JSON.stringify(data.ingredients) : undefined,
+        instructions: data.instructions ? JSON.stringify(data.instructions) : undefined,
+      };
       return prisma.recipe.update({
         where: { id: input.id },
-        data: input.data,
+        data: updateData,
       });
     }),
 

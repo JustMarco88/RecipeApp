@@ -56,3 +56,45 @@ npm run dev
 - \`/src/server\`: tRPC server code
 - \`/src/utils\`: Utility functions
 - \`/prisma\`: Database schema and migrations 
+
+## Database Setup
+
+### PostgreSQL Installation
+
+1. Install PostgreSQL:
+   - **macOS**: `brew install postgresql`
+   - **Windows**: Download installer from [PostgreSQL website](https://www.postgresql.org/download/windows/)
+   - **Linux**: `sudo apt-get install postgresql`
+
+2. Start PostgreSQL service:
+   - **macOS**: `brew services start postgresql`
+   - **Windows**: Service starts automatically
+   - **Linux**: `sudo systemctl start postgresql`
+
+3. Create database and user:
+```sql
+psql postgres
+CREATE DATABASE recipeapp;
+CREATE USER recipeapp WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE recipeapp TO recipeapp;
+```
+
+### Environment Configuration
+
+1. Create a `.env` file in the project root:
+```env
+DATABASE_URL="postgresql://recipeapp:your_password@localhost:5432/recipeapp"
+```
+
+2. Make sure the following environment variables are set:
+- `DATABASE_URL`: PostgreSQL connection string
+- `NEXTAUTH_URL`: Your application URL (e.g., http://localhost:3000)
+- `NEXTAUTH_SECRET`: Random string for session encryption
+
+### Troubleshooting
+
+If you encounter database connection issues:
+1. Verify PostgreSQL is running: `pg_isready`
+2. Check database exists: `psql -l`
+3. Ensure user permissions are correct
+4. Verify `.env` configuration matches your database settings 
