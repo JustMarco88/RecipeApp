@@ -21,29 +21,9 @@ interface Ingredient {
   checked: boolean
 }
 
-interface TimerPresets {
-  presets: number[]
-  usage: Record<number, number>
-}
-
 interface CookingViewProps {
   recipeId: string
   onClose: () => void
-}
-
-const getInitialPresets = (): TimerPresets => {
-  try {
-    const saved = localStorage.getItem('timerPresets')
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch (error) {
-    console.error('Error loading timer presets:', error)
-  }
-  return {
-    presets: [5, 10, 15, 30],
-    usage: {}
-  }
 }
 
 export function CookingView({ recipeId, onClose }: CookingViewProps) {
@@ -55,7 +35,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
   const [newTimerDuration, setNewTimerDuration] = useState(5)
   const [startTime] = useState<Date>(new Date())
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [timerPresets, setTimerPresets] = useState(getInitialPresets())
+  const [instructions, setInstructions] = useState<string[]>([])
   const { toast } = useToast()
   const utils = trpc.useContext()
 
@@ -64,7 +44,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
       utils.recipe.getCookingHistory.invalidate()
       toast({
         title: "Success",
-        description: "Cooking session recorded!",
+        description: "Cooking session recorded successfully!",
       })
       onClose()
     },
@@ -72,17 +52,34 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
 
   useEffect(() => {
     if (recipe) {
-      const parsedIngredients = JSON.parse(recipe.ingredients as string).map(
-        (ing: Omit<Ingredient, "checked">) => ({
-          ...ing,
-          checked: false,
-        })
-      )
-      setIngredients(parsedIngredients)
-    }
-  }, [recipe])
+      try {
+        // Parse ingredients
+        const parsedIngredients = JSON.parse(recipe.ingredients).map(
+          (ing: Omit<Ingredient, "checked">) => ({
+            ...ing,
+            checked: false,
+          })
+        )
+        setIngredients(parsedIngredients)
 
-  const instructions = recipe ? JSON.parse(recipe.instructions as string) : []
+        // Parse instructions
+        const parsedInstructions = JSON.parse(recipe.instructions)
+        if (Array.isArray(parsedInstructions)) {
+          setInstructions(parsedInstructions)
+        } else {
+          console.error('Instructions is not an array:', parsedInstructions)
+          setInstructions([])
+        }
+      } catch (error) {
+        console.error('Error parsing recipe data:', error)
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load recipe data",
+        })
+      }
+    }
+  }, [recipe, toast])
 
   useEffect(() => {
     const timerInterval = setInterval(() => {
@@ -106,53 +103,18 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
     return () => clearInterval(timerInterval)
   }, [toast])
 
-  const updatePresetUsage = (minutes: number) => {
-    const newUsage = {
-      ...timerPresets.usage,
-      [minutes]: (timerPresets.usage[minutes] || 0) + 1
-    }
-    const allPresets = Array.from(new Set([...timerPresets.presets, minutes]))
-    const sortedPresets = allPresets
-      .sort((a, b) => (newUsage[b] || 0) - (newUsage[a] || 0))
-      .slice(0, 4)
-    
-    const newPresets = {
-      presets: sortedPresets,
-      usage: newUsage
-    }
-    setTimerPresets(newPresets)
-    try {
-      localStorage.setItem('timerPresets', JSON.stringify(newPresets))
-    } catch (error) {
-      console.error('Error saving timer presets:', error)
-    }
-  }
-
-  const addTimer = (duration?: number) => {
-    const timerDuration = duration || newTimerDuration
-    const timerName = newTimerName || `${timerDuration} min timer`
-    
+  const addTimer = () => {
+    const timerName = newTimerName || `${newTimerDuration} min timer`
     const newTimer: Timer = {
       id: Math.random().toString(36).substr(2, 9),
       name: timerName,
-      duration: timerDuration * 60,
-      timeLeft: timerDuration * 60,
+      duration: newTimerDuration * 60,
+      timeLeft: newTimerDuration * 60,
       isRunning: true,
     }
     setTimers(prev => [...prev, newTimer])
     setNewTimerName("")
     setNewTimerDuration(5)
-
-    if (duration) {
-      updatePresetUsage(duration)
-    }
-  }
-
-  const adjustTimer = (increment: boolean) => {
-    setNewTimerDuration(prev => {
-      const newValue = increment ? prev + 1 : prev - 1
-      return Math.max(1, newValue)
-    })
   }
 
   const toggleTimer = (id: string) => {
@@ -189,13 +151,18 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
   }
 
   const finishCooking = async () => {
+    if (!recipe) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Recipe not found",
+      })
+      return
+    }
+
     try {
       const completedAt = new Date()
       const actualTime = Math.round((completedAt.getTime() - startTime.getTime()) / 60000)
-      
-      if (!recipe) {
-        throw new Error('Recipe not found')
-      }
 
       await recordCooking.mutateAsync({
         recipeId,
@@ -204,19 +171,12 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
         actualTime,
         servingsCooked: Math.round(recipe.servings * servingMultiplier),
       })
-
-      toast({
-        title: "Success",
-        description: "Cooking session recorded successfully!",
-      })
-      
-      onClose()
     } catch (error: any) {
       console.error('Error recording cooking session:', error)
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to record cooking session. Please try again.",
+        description: error.message || "Failed to record cooking session",
       })
     }
   }
@@ -234,7 +194,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
     <div className="fixed inset-0 bg-background z-50 overflow-auto">
       <div className="container mx-auto p-4 max-w-6xl">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">{recipe?.title}</h1>
+          <h1 className="text-3xl font-bold">{recipe.title}</h1>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-6 w-6" />
           </Button>
@@ -295,20 +255,6 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
             <div className="bg-card rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Timers</h2>
               <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  {timerPresets.presets.map(minutes => (
-                    <Button
-                      key={minutes}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addTimer(minutes)}
-                      className="flex-1"
-                    >
-                      {minutes} min
-                    </Button>
-                  ))}
-                </div>
-
                 <div className="space-y-4">
                   <Input
                     placeholder="Timer name (optional)"
@@ -319,7 +265,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => adjustTimer(false)}
+                      onClick={() => setNewTimerDuration(prev => Math.max(1, prev - 1))}
                       disabled={newTimerDuration <= 1}
                     >
                       <Minus className="h-4 w-4" />
@@ -335,12 +281,12 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => adjustTimer(true)}
+                      onClick={() => setNewTimerDuration(prev => prev + 1)}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
-                  <Button onClick={() => addTimer()} className="w-full">
+                  <Button onClick={addTimer} className="w-full">
                     Add Timer
                   </Button>
                 </div>
@@ -354,7 +300,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
                       <div className="flex flex-col">
                         <span className="font-medium">{timer.name}</span>
                         <span className="text-sm text-muted-foreground">
-                          {Math.ceil(timer.timeLeft / 60)} min remaining
+                          {formatTime(timer.timeLeft)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -416,7 +362,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
             </div>
 
             <div className="bg-card p-6 rounded-lg shadow-sm min-h-[200px] text-xl mb-8">
-              {instructions[currentStep]}
+              {instructions[currentStep] || "No instructions available"}
             </div>
 
             <div className="bg-muted rounded-lg p-4">

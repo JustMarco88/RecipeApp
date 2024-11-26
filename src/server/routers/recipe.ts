@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, publicProcedure } from '../trpc';
 import { prisma } from '../db';
 import { TRPCError } from '@trpc/server';
+import { Prisma } from '@prisma/client';
 
 export const recipeRouter = router({
   getAll: publicProcedure.query(async () => {
@@ -103,19 +104,11 @@ export const recipeRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      if (!prisma) {
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Database connection not initialized',
-        });
-      }
-
       try {
-        console.log('Recording cooking history with input:', input);
-
-        // Verify recipe exists
+        // First verify recipe exists
         const recipe = await prisma.recipe.findUnique({
           where: { id: input.recipeId },
+          select: { id: true, title: true }, // Only select what we need
         });
 
         if (!recipe) {
@@ -125,9 +118,7 @@ export const recipeRouter = router({
           });
         }
 
-        console.log('Found recipe:', recipe.title);
-
-        // Record cooking history
+        // Create cooking history record
         const result = await prisma.cookingHistory.create({
           data: {
             recipeId: input.recipeId,
@@ -138,23 +129,26 @@ export const recipeRouter = router({
           },
         });
 
-        console.log('Successfully recorded cooking history:', result);
         return result;
-      } catch (error: any) {
-        console.error('Detailed error recording cooking history:', {
-          error: error.message,
-          stack: error.stack,
-          input,
-        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          // Handle known Prisma errors
+          if (error.code === 'P2002') {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'A record for this cooking session already exists',
+            });
+          }
+        }
 
         if (error instanceof TRPCError) {
           throw error;
         }
 
+        console.error('Database error:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: `Failed to record cooking history: ${error.message}`,
-          cause: error,
+          message: 'Failed to record cooking history',
         });
       }
     }),
@@ -176,7 +170,10 @@ export const recipeRouter = router({
         });
       } catch (error) {
         console.error('Error fetching cooking history:', error);
-        throw new Error('Failed to fetch cooking history');
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch cooking history',
+        });
       }
     }),
 }); 
