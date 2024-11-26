@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Recipe {
+  id          String   @id @default(cuid())
+  title       String
+  ingredients Json     // Array of ingredients with quantities and units
+  instructions Json    // Array of step-by-step instructions
+  prepTime    Int     // In minutes
+  cookTime    Int     // In minutes
+  servings    Int
+  difficulty  String  // Easy, Medium, Hard
+  cuisineType String?
+  tags        String[] // Dietary restrictions and other tags
+  imageUrl    String?
+  nutrition   Json?   // Nutritional information
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String? // For future user authentication
+}
+
+model Timer {
+  id        String   @id @default(cuid())
+  name      String
+  duration  Int      // In seconds
+  recipeId  String?
+  createdAt DateTime @default(now())
+} 
