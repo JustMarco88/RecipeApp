@@ -17,6 +17,44 @@ export const recipeRouter = router({
       });
     }),
 
+  uploadImage: publicProcedure
+    .input(z.object({
+      image: z.string(), // base64 encoded image
+      contentType: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+        const base64Data = input.image.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        // Generate a unique filename
+        const filename = `${Date.now()}-${Math.random().toString(36).substring(2)}.${input.contentType.split('/')[1]}`;
+        
+        // Save the file to the public directory
+        const fs = require('fs');
+        const path = require('path');
+        const publicDir = path.join(process.cwd(), 'public', 'uploads');
+        
+        // Create the uploads directory if it doesn't exist
+        if (!fs.existsSync(publicDir)) {
+          fs.mkdirSync(publicDir, { recursive: true });
+        }
+
+        const filePath = path.join(publicDir, filename);
+        fs.writeFileSync(filePath, buffer);
+
+        // Return the URL path to the image
+        return `/uploads/${filename}`;
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to upload image',
+        });
+      }
+    }),
+
   create: publicProcedure
     .input(
       z.object({

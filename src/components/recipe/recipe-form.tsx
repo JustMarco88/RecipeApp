@@ -42,11 +42,32 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
   const [imageUrl, setImageUrl] = useState("")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   const utils = trpc.useContext()
   
   const { data: existingRecipe } = trpc.recipe.getById.useQuery(recipeId ?? "", {
     enabled: !!recipeId,
+  })
+
+  const uploadImage = trpc.recipe.uploadImage.useMutation({
+    onSuccess: (url) => {
+      setImageUrl(url)
+      setIsUploading(false)
+      toast({
+        title: "Success",
+        description: "Image uploaded successfully",
+      })
+    },
+    onError: (error) => {
+      setImageError("Failed to upload image")
+      setIsUploading(false)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to upload image",
+      })
+    },
   })
 
   const createRecipe = trpc.recipe.create.useMutation({
@@ -105,6 +126,65 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
     }
   }, [existingRecipe, toast])
 
+  const validateImage = (file: File): string | null => {
+    if (file.size > MAX_FILE_SIZE) {
+      return "Image size must be less than 5MB"
+    }
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      return "Only JPEG, PNG and WebP images are allowed"
+    }
+    return null
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    setImageError(null)
+
+    if (file) {
+      const error = validateImage(file)
+      if (error) {
+        setImageError(error)
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error,
+        })
+        return
+      }
+
+      try {
+        setIsUploading(true)
+        setImageFile(file)
+
+        // Convert file to base64
+        const reader = new FileReader()
+        reader.onloadend = async () => {
+          const base64String = reader.result as string
+          await uploadImage.mutateAsync({
+            image: base64String,
+            contentType: file.type,
+          })
+        }
+        reader.readAsDataURL(file)
+      } catch (error) {
+        console.error('Error uploading image:', error)
+        setImageError("Failed to upload image")
+        setIsUploading(false)
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to upload image",
+        })
+      }
+    }
+  }
+
+  const handleRemoveImage = () => {
+    setImageUrl("")
+    setImageFile(null)
+    setImageError(null)
+  }
+
   const addIngredient = () => {
     setIngredients([...ingredients, { name: "", amount: 0, unit: "" }])
   }
@@ -155,6 +235,9 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
     setCuisineType("")
     setTags([])
     setError(null)
+    setImageUrl("")
+    setImageFile(null)
+    setImageError(null)
   }
 
   const validateForm = () => {
@@ -235,47 +318,6 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       console.error("Error saving recipe:", error)
       onError?.("Failed to save recipe. Please try again.")
     }
-  }
-
-  const validateImage = (file: File): string | null => {
-    if (file.size > MAX_FILE_SIZE) {
-      return "Image size must be less than 5MB"
-    }
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      return "Only JPEG, PNG and WebP images are allowed"
-    }
-    return null
-  }
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    setImageError(null)
-
-    if (file) {
-      const error = validateImage(file)
-      if (error) {
-        setImageError(error)
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error,
-        })
-        return
-      }
-
-      setImageFile(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const handleRemoveImage = () => {
-    setImageUrl("")
-    setImageFile(null)
-    setImageError(null)
   }
 
   const NumberInput = ({ 
@@ -363,13 +405,15 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
                   accept={ALLOWED_FILE_TYPES.join(',')}
                   className="hidden"
                   onChange={handleImageUpload}
+                  disabled={isUploading}
                 />
                 <Button
                   type="button"
                   variant="secondary"
                   className={`opacity-0 group-hover:opacity-100 transition-opacity ${imageUrl ? 'bg-black/50' : ''}`}
+                  disabled={isUploading}
                 >
-                  {imageUrl ? "Change Image" : "Add Image"}
+                  {isUploading ? "Uploading..." : imageUrl ? "Change Image" : "Add Image"}
                 </Button>
               </label>
             </div>
@@ -540,7 +584,7 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button type="submit" disabled={createRecipe.isLoading || updateRecipe.isLoading}>
+            <Button type="submit" disabled={createRecipe.isLoading || updateRecipe.isLoading || isUploading}>
               {recipeId ? (
                 updateRecipe.isLoading ? "Updating..." : "Update Recipe"
               ) : (
