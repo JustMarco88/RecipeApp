@@ -211,163 +211,177 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium mb-2">Title</label>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Recipe title"
-          required
-        />
-      </div>
+      <div className="bg-card rounded-lg p-6 space-y-4">
+        <div>
+          <label className="text-lg font-semibold mb-2">Recipe Title</label>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Enter recipe title"
+            required
+            className="mt-2"
+          />
+        </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-2">Ingredients</label>
-        {ingredients.map((ingredient, index) => (
-          <div key={index} className="flex gap-2 mb-2">
-            <Input
-              value={ingredient.name}
-              onChange={(e) =>
-                updateIngredient(index, "name", e.target.value)
-              }
-              placeholder="Ingredient name"
-              className="flex-1"
-              required
-            />
+        <div>
+          <label className="text-lg font-semibold mb-4">Ingredients</label>
+          <div className="space-y-3 mt-2">
+            {ingredients.map((ingredient, index) => (
+              <div key={index} className="flex gap-2 items-start">
+                <div className="flex-1">
+                  <Input
+                    value={ingredient.name}
+                    onChange={(e) =>
+                      updateIngredient(index, "name", e.target.value)
+                    }
+                    placeholder="Ingredient name"
+                    required
+                  />
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    value={ingredient.amount}
+                    onChange={(e) =>
+                      updateIngredient(index, "amount", e.target.value)
+                    }
+                    placeholder="Amount"
+                    required
+                    min="0"
+                    step="0.1"
+                  />
+                </div>
+                <div className="w-24">
+                  <Input
+                    value={ingredient.unit}
+                    onChange={(e) =>
+                      updateIngredient(index, "unit", e.target.value)
+                    }
+                    placeholder="Unit"
+                    required
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => removeIngredient(index)}
+                  disabled={ingredients.length === 1}
+                  className="shrink-0"
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addIngredient}
+              className="w-full mt-2"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Ingredient
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-lg font-semibold mb-4">Instructions</label>
+          <div className="space-y-3 mt-2">
+            {instructions.map((instruction, index) => (
+              <div key={index} className="flex gap-2">
+                <div className="flex-1">
+                  <Textarea
+                    value={instruction}
+                    onChange={(e) => updateInstruction(index, e.target.value)}
+                    placeholder={`Step ${index + 1}`}
+                    required
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => removeInstruction(index)}
+                  disabled={instructions.length === 1}
+                  className="shrink-0"
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addInstruction}
+              className="w-full mt-2"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Step
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-muted p-4 rounded-lg">
+            <label className="text-sm font-medium mb-2 block">Prep Time (min)</label>
             <Input
               type="number"
-              value={ingredient.amount}
-              onChange={(e) =>
-                updateIngredient(index, "amount", e.target.value)
-              }
-              placeholder="Amount"
-              className="w-24"
+              value={prepTime}
+              onChange={(e) => setPrepTime(Number(e.target.value))}
               required
               min="0"
-              step="0.1"
             />
+          </div>
+          <div className="bg-muted p-4 rounded-lg">
+            <label className="text-sm font-medium mb-2 block">Cook Time (min)</label>
             <Input
-              value={ingredient.unit}
-              onChange={(e) =>
-                updateIngredient(index, "unit", e.target.value)
-              }
-              placeholder="Unit"
-              className="w-24"
+              type="number"
+              value={cookTime}
+              onChange={(e) => setCookTime(Number(e.target.value))}
               required
+              min="0"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => removeIngredient(index)}
-              disabled={ingredients.length === 1}
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
           </div>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={addIngredient}
-          className="mt-2"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Ingredient
-        </Button>
-      </div>
+        </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-2">Instructions</label>
-        {instructions.map((instruction, index) => (
-          <div key={index} className="flex gap-2 mb-2">
-            <Textarea
-              value={instruction}
-              onChange={(e) => updateInstruction(index, e.target.value)}
-              placeholder={`Step ${index + 1}`}
-              className="flex-1"
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-muted p-4 rounded-lg">
+            <label className="text-sm font-medium mb-2 block">Servings</label>
+            <Input
+              type="number"
+              value={servings}
+              onChange={(e) => setServings(Number(e.target.value))}
               required
+              min="1"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => removeInstruction(index)}
-              disabled={instructions.length === 1}
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
           </div>
-        ))}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={addInstruction}
-          className="mt-2"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Step
-        </Button>
-      </div>
+          <div className="bg-muted p-4 rounded-lg">
+            <label className="text-sm font-medium mb-2 block">Difficulty</label>
+            <Select value={difficulty} onValueChange={(value: Difficulty) => setDifficulty(value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select difficulty" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Easy">Easy</SelectItem>
+                <SelectItem value="Medium">Medium</SelectItem>
+                <SelectItem value="Hard">Hard</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
-      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-2">Prep Time (min)</label>
+          <label className="text-lg font-semibold mb-2">Cuisine Type</label>
           <Input
-            type="number"
-            value={prepTime}
-            onChange={(e) => setPrepTime(Number(e.target.value))}
-            required
-            min="0"
+            value={cuisineType}
+            onChange={(e) => setCuisineType(e.target.value)}
+            placeholder="e.g., Italian, Mexican, etc."
+            className="mt-2"
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-2">Cook Time (min)</label>
-          <Input
-            type="number"
-            value={cookTime}
-            onChange={(e) => setCookTime(Number(e.target.value))}
-            required
-            min="0"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium mb-2">Servings</label>
-          <Input
-            type="number"
-            value={servings}
-            onChange={(e) => setServings(Number(e.target.value))}
-            required
-            min="1"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-2">Difficulty</label>
-          <Select value={difficulty} onValueChange={(value: Difficulty) => setDifficulty(value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select difficulty" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Easy">Easy</SelectItem>
-              <SelectItem value="Medium">Medium</SelectItem>
-              <SelectItem value="Hard">Hard</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium mb-2">Cuisine Type</label>
-        <Input
-          value={cuisineType}
-          onChange={(e) => setCuisineType(e.target.value)}
-          placeholder="e.g., Italian, Mexican, etc."
-        />
       </div>
 
       <div className="flex justify-end gap-2">

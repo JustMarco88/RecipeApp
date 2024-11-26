@@ -32,7 +32,7 @@ export const recipeRouter = router({
         cuisineType: z.string().optional(),
         tags: z.array(z.string()),
         imageUrl: z.string().optional(),
-        nutrition: z.object({}).optional(),
+        nutrition: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -42,6 +42,7 @@ export const recipeRouter = router({
           ...rest,
           ingredients: JSON.stringify(ingredients),
           instructions: JSON.stringify(instructions),
+          nutrition: rest.nutrition ? rest.nutrition : null,
         },
       });
     }),
@@ -65,7 +66,7 @@ export const recipeRouter = router({
           cuisineType: z.string().optional(),
           tags: z.array(z.string()).optional(),
           imageUrl: z.string().optional(),
-          nutrition: z.object({}).optional(),
+          nutrition: z.string().optional(),
         }),
       })
     )
@@ -102,22 +103,40 @@ export const recipeRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
+        console.log('Recording cooking history with input:', input);
+
         // Verify recipe exists
         const recipe = await prisma.recipe.findUnique({
           where: { id: input.recipeId },
-        })
+        });
 
         if (!recipe) {
-          throw new Error('Recipe not found')
+          console.error('Recipe not found:', input.recipeId);
+          throw new Error('Recipe not found');
         }
 
+        console.log('Found recipe:', recipe.title);
+
         // Record cooking history
-        return await prisma.cookingHistory.create({
-          data: input,
-        })
-      } catch (error) {
-        console.error('Error recording cooking history:', error)
-        throw new Error('Failed to record cooking history')
+        const result = await prisma.cookingHistory.create({
+          data: {
+            recipeId: input.recipeId,
+            startedAt: new Date(input.startedAt),
+            completedAt: new Date(input.completedAt),
+            actualTime: input.actualTime,
+            servingsCooked: input.servingsCooked,
+          },
+        });
+
+        console.log('Successfully recorded cooking history:', result);
+        return result;
+      } catch (error: any) {
+        console.error('Detailed error recording cooking history:', {
+          error: error.message,
+          stack: error.stack,
+          input,
+        });
+        throw new Error(`Failed to record cooking history: ${error.message}`);
       }
     }),
 
@@ -128,10 +147,17 @@ export const recipeRouter = router({
         return await prisma.cookingHistory.findMany({
           where: { recipeId: input },
           orderBy: { completedAt: 'desc' },
-        })
+          include: {
+            recipe: {
+              select: {
+                title: true,
+              },
+            },
+          },
+        });
       } catch (error) {
-        console.error('Error fetching cooking history:', error)
-        throw new Error('Failed to fetch cooking history')
+        console.error('Error fetching cooking history:', error);
+        throw new Error('Failed to fetch cooking history');
       }
     }),
 }); 
