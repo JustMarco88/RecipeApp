@@ -105,6 +105,13 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
     setNewTimerDuration(5)
   }
 
+  const adjustTimer = (increment: boolean) => {
+    setNewTimerDuration(prev => {
+      const newValue = increment ? prev + 1 : prev - 1
+      return Math.max(1, newValue)
+    })
+  }
+
   const toggleTimer = (id: string) => {
     setTimers(prev =>
       prev.map(timer =>
@@ -227,33 +234,55 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
             <div className="bg-card rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Timers</h2>
               <div className="space-y-4">
-                <div className="flex gap-2">
+                <div className="space-y-4">
                   <Input
                     placeholder="Timer name"
                     value={newTimerName}
                     onChange={(e) => setNewTimerName(e.target.value)}
                   />
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="Minutes"
-                    value={newTimerDuration}
-                    onChange={(e) => setNewTimerDuration(Number(e.target.value))}
-                    className="w-24"
-                  />
-                  <Button onClick={addTimer}>Add</Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => adjustTimer(false)}
+                      disabled={newTimerDuration <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <div className="flex-1 text-center">
+                      <span className="text-2xl font-semibold">
+                        {newTimerDuration}
+                      </span>
+                      <span className="text-sm text-muted-foreground ml-2">
+                        minutes
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => adjustTimer(true)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Button onClick={addTimer} className="w-full">
+                    Add Timer
+                  </Button>
                 </div>
+
                 <div className="space-y-2">
                   {timers.map(timer => (
                     <div
                       key={timer.id}
-                      className="flex items-center justify-between bg-muted p-2 rounded"
+                      className="flex items-center justify-between bg-muted p-3 rounded-lg"
                     >
-                      <span>{timer.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono">
-                          {formatTime(timer.timeLeft)}
+                      <div className="flex flex-col">
+                        <span className="font-medium">{timer.name}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {Math.ceil(timer.timeLeft / 60)} min remaining
                         </span>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <Button
                           variant="ghost"
                           size="icon"
