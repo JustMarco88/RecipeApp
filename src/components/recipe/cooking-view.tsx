@@ -21,20 +21,28 @@ interface Ingredient {
   checked: boolean
 }
 
+interface TimerPresets {
+  presets: number[]
+  usage: Record<number, number>
+}
+
 interface CookingViewProps {
   recipeId: string
   onClose: () => void
 }
 
-// Load timer presets from localStorage or use defaults
-const getInitialPresets = () => {
-  const saved = localStorage.getItem('timerPresets')
-  if (saved) {
-    return JSON.parse(saved)
+const getInitialPresets = (): TimerPresets => {
+  try {
+    const saved = localStorage.getItem('timerPresets')
+    if (saved) {
+      return JSON.parse(saved)
+    }
+  } catch (error) {
+    console.error('Error loading timer presets:', error)
   }
   return {
     presets: [5, 10, 15, 30],
-    usage: {} as Record<number, number>
+    usage: {}
   }
 }
 
@@ -103,12 +111,21 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
       ...timerPresets.usage,
       [minutes]: (timerPresets.usage[minutes] || 0) + 1
     }
+    const allPresets = Array.from(new Set([...timerPresets.presets, minutes]))
+    const sortedPresets = allPresets
+      .sort((a, b) => (newUsage[b] || 0) - (newUsage[a] || 0))
+      .slice(0, 4)
+    
     const newPresets = {
-      presets: [...new Set([...timerPresets.presets, minutes])].sort((a, b) => newUsage[b] - newUsage[a]).slice(0, 4),
+      presets: sortedPresets,
       usage: newUsage
     }
     setTimerPresets(newPresets)
-    localStorage.setItem('timerPresets', JSON.stringify(newPresets))
+    try {
+      localStorage.setItem('timerPresets', JSON.stringify(newPresets))
+    } catch (error) {
+      console.error('Error saving timer presets:', error)
+    }
   }
 
   const addTimer = (duration?: number) => {
@@ -176,19 +193,23 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
       const completedAt = new Date()
       const actualTime = Math.round((completedAt.getTime() - startTime.getTime()) / 60000)
       
+      if (!recipe) {
+        throw new Error('Recipe not found')
+      }
+
       await recordCooking.mutateAsync({
         recipeId,
         startedAt: startTime,
         completedAt,
         actualTime,
-        servingsCooked: Math.round(recipe!.servings * servingMultiplier),
+        servingsCooked: Math.round(recipe.servings * servingMultiplier),
       })
     } catch (error) {
       console.error('Error recording cooking session:', error)
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to record cooking session",
+        description: "Failed to record cooking session. Please try again.",
       })
     }
   }
@@ -206,7 +227,7 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
     <div className="fixed inset-0 bg-background z-50 overflow-auto">
       <div className="container mx-auto p-4 max-w-6xl">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">{recipe.title}</h1>
+          <h1 className="text-3xl font-bold">{recipe?.title}</h1>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-6 w-6" />
           </Button>
@@ -370,8 +391,12 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
                 Step {currentStep + 1} of {instructions.length}
               </span>
               {currentStep === instructions.length - 1 ? (
-                <Button onClick={finishCooking} variant="default">
-                  Finish Cooking
+                <Button 
+                  onClick={finishCooking}
+                  variant="default"
+                  disabled={recordCooking.isLoading}
+                >
+                  {recordCooking.isLoading ? "Saving..." : "Finish Cooking"}
                 </Button>
               ) : (
                 <Button

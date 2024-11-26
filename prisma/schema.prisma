@@ -10,8 +10,8 @@ datasource db {
 model Recipe {
   id          String   @id @default(cuid())
   title       String
-  ingredients Json     // Array of ingredients with quantities and units
-  instructions Json    // Array of step-by-step instructions
+  ingredients String   // JSON string of ingredients array
+  instructions String  // JSON string of instructions array
   prepTime    Int     // In minutes
   cookTime    Int     // In minutes
   servings    Int
@@ -19,7 +19,7 @@ model Recipe {
   cuisineType String?
   tags        String[] // Dietary restrictions and other tags
   imageUrl    String?
-  nutrition   Json?   // Nutritional information
+  nutrition   String? // JSON string of nutrition object
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   userId      String? // For future user authentication
@@ -37,7 +37,7 @@ model Timer {
 model CookingHistory {
   id            String   @id @default(cuid())
   recipeId      String
-  recipe        Recipe   @relation(fields: [recipeId], references: [id])
+  recipe        Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   startedAt     DateTime @default(now())
   completedAt   DateTime
   actualTime    Int      // In minutes

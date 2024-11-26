@@ -101,17 +101,37 @@ export const recipeRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      return prisma.cookingHistory.create({
-        data: input,
-      });
+      try {
+        // Verify recipe exists
+        const recipe = await prisma.recipe.findUnique({
+          where: { id: input.recipeId },
+        })
+
+        if (!recipe) {
+          throw new Error('Recipe not found')
+        }
+
+        // Record cooking history
+        return await prisma.cookingHistory.create({
+          data: input,
+        })
+      } catch (error) {
+        console.error('Error recording cooking history:', error)
+        throw new Error('Failed to record cooking history')
+      }
     }),
 
   getCookingHistory: publicProcedure
     .input(z.string())
     .query(async ({ input }) => {
-      return prisma.cookingHistory.findMany({
-        where: { recipeId: input },
-        orderBy: { completedAt: 'desc' },
-      });
+      try {
+        return await prisma.cookingHistory.findMany({
+          where: { recipeId: input },
+          orderBy: { completedAt: 'desc' },
+        })
+      } catch (error) {
+        console.error('Error fetching cooking history:', error)
+        throw new Error('Failed to fetch cooking history')
+      }
     }),
 }); 
