@@ -204,12 +204,19 @@ export function CookingView({ recipeId, onClose }: CookingViewProps) {
         actualTime,
         servingsCooked: Math.round(recipe.servings * servingMultiplier),
       })
-    } catch (error) {
+
+      toast({
+        title: "Success",
+        description: "Cooking session recorded successfully!",
+      })
+      
+      onClose()
+    } catch (error: any) {
       console.error('Error recording cooking session:', error)
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to record cooking session. Please try again.",
+        description: error.message || "Failed to record cooking session. Please try again.",
       })
     }
   }

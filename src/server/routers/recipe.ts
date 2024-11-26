@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../trpc';
 import { prisma } from '../db';
+import { TRPCError } from '@trpc/server';
 
 export const recipeRouter = router({
   getAll: publicProcedure.query(async () => {
@@ -102,6 +103,13 @@ export const recipeRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      if (!prisma) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Database connection not initialized',
+        });
+      }
+
       try {
         console.log('Recording cooking history with input:', input);
 
@@ -111,8 +119,10 @@ export const recipeRouter = router({
         });
 
         if (!recipe) {
-          console.error('Recipe not found:', input.recipeId);
-          throw new Error('Recipe not found');
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Recipe not found',
+          });
         }
 
         console.log('Found recipe:', recipe.title);
@@ -136,7 +146,16 @@ export const recipeRouter = router({
           stack: error.stack,
           input,
         });
-        throw new Error(`Failed to record cooking history: ${error.message}`);
+
+        if (error instanceof TRPCError) {
+          throw error;
+        }
+
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to record cooking history: ${error.message}`,
+          cause: error,
+        });
       }
     }),
 
