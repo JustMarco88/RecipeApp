@@ -190,6 +190,8 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
         await createRecipe.mutateAsync(recipeData)
         resetForm()
       }
+      const closeButton = document.querySelector('[role="dialog"] button[type="button"]') as HTMLButtonElement;
+      closeButton?.click();
     } catch (error) {
       console.error("Error saving recipe:", error)
       setError("Failed to save recipe. Please try again.")

@@ -9,14 +9,16 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { RecipeForm } from "./recipe-form"
+import { CookingView } from "./cooking-view"
 import { useToast } from "@/hooks/use-toast"
-import { Pencil, Trash2 } from "lucide-react"
+import { Pencil, Trash2, ChefHat } from "lucide-react"
 
 export function RecipeList() {
   const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery()
   const { toast } = useToast()
   const utils = trpc.useContext()
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
+  const [cookingViewRecipe, setCookingViewRecipe] = useState<string | null>(null)
 
   const deleteRecipe = trpc.recipe.delete.useMutation({
     onSuccess: () => {
@@ -45,6 +47,15 @@ export function RecipeList() {
     return <div>Loading recipes...</div>
   }
 
+  if (cookingViewRecipe) {
+    return (
+      <CookingView
+        recipeId={cookingViewRecipe}
+        onClose={() => setCookingViewRecipe(null)}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">My Recipes</h2>
@@ -57,6 +68,13 @@ export function RecipeList() {
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">{recipe.title}</h3>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setCookingViewRecipe(recipe.id)}
+                >
+                  <ChefHat className="h-4 w-4" />
+                </Button>
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button
