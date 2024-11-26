@@ -22,24 +22,6 @@ const Home: NextPage = () => {
       </Head>
 
       <main className="container mx-auto py-8 px-4">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold">Recipe App</h1>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Recipe
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Recipe</DialogTitle>
-              </DialogHeader>
-              <RecipeForm />
-            </DialogContent>
-          </Dialog>
-        </div>
-
         <RecipeList />
       </main>
     </>

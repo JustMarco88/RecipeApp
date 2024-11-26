@@ -45,6 +45,7 @@ export const recipeRouter = router({
           ingredients: JSON.stringify(ingredients),
           instructions: JSON.stringify(instructions),
           nutrition: rest.nutrition ? rest.nutrition : null,
+          imageUrl: rest.imageUrl ? rest.imageUrl : null,
         },
       });
     }),
