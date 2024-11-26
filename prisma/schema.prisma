@@ -23,6 +23,7 @@ model Recipe {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   userId      String? // For future user authentication
+  cookingHistory CookingHistory[]
 }
 
 model Timer {
@@ -31,4 +32,15 @@ model Timer {
   duration  Int      // In seconds
   recipeId  String?
   createdAt DateTime @default(now())
+}
+
+model CookingHistory {
+  id            String   @id @default(cuid())
+  recipeId      String
+  recipe        Recipe   @relation(fields: [recipeId], references: [id])
+  startedAt     DateTime @default(now())
+  completedAt   DateTime
+  actualTime    Int      // In minutes
+  servingsCooked Int
+  createdAt     DateTime @default(now())
 } 

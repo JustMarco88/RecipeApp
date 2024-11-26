@@ -89,4 +89,29 @@ export const recipeRouter = router({
         where: { id: input },
       });
     }),
+
+  recordCooking: publicProcedure
+    .input(
+      z.object({
+        recipeId: z.string(),
+        startedAt: z.date(),
+        completedAt: z.date(),
+        actualTime: z.number(),
+        servingsCooked: z.number(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      return prisma.cookingHistory.create({
+        data: input,
+      });
+    }),
+
+  getCookingHistory: publicProcedure
+    .input(z.string())
+    .query(async ({ input }) => {
+      return prisma.cookingHistory.findMany({
+        where: { recipeId: input },
+        orderBy: { completedAt: 'desc' },
+      });
+    }),
 }); 
