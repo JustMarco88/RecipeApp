@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -22,7 +22,11 @@ interface Ingredient {
 
 type Difficulty = "Easy" | "Medium" | "Hard"
 
-export function RecipeForm() {
+interface RecipeFormProps {
+  recipeId?: string
+}
+
+export function RecipeForm({ recipeId }: RecipeFormProps) {
   const [title, setTitle] = useState("")
   const [ingredients, setIngredients] = useState<Ingredient[]>([
     { name: "", amount: 0, unit: "" },
@@ -38,11 +42,44 @@ export function RecipeForm() {
   const { toast } = useToast()
 
   const utils = trpc.useContext()
+  
+  const { data: existingRecipe } = trpc.recipe.getById.useQuery(recipeId ?? "", {
+    enabled: !!recipeId,
+  })
+
   const createRecipe = trpc.recipe.create.useMutation({
     onSuccess: () => {
       utils.recipe.getAll.invalidate()
+      toast({
+        title: "Success",
+        description: "Recipe created successfully",
+      })
     },
   })
+
+  const updateRecipe = trpc.recipe.update.useMutation({
+    onSuccess: () => {
+      utils.recipe.getAll.invalidate()
+      toast({
+        title: "Success",
+        description: "Recipe updated successfully",
+      })
+    },
+  })
+
+  useEffect(() => {
+    if (existingRecipe) {
+      setTitle(existingRecipe.title)
+      setIngredients(JSON.parse(existingRecipe.ingredients as string))
+      setInstructions(JSON.parse(existingRecipe.instructions as string))
+      setPrepTime(existingRecipe.prepTime)
+      setCookTime(existingRecipe.cookTime)
+      setServings(existingRecipe.servings)
+      setDifficulty(existingRecipe.difficulty as Difficulty)
+      setCuisineType(existingRecipe.cuisineType ?? "")
+      setTags(existingRecipe.tags)
+    }
+  }, [existingRecipe])
 
   const addIngredient = () => {
     setIngredients([...ingredients, { name: "", amount: 0, unit: "" }])
@@ -96,11 +133,7 @@ export function RecipeForm() {
     setError(null)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-
-    // Validate ingredients
+  const validateForm = () => {
     if (ingredients.some(ing => !ing.name || !ing.unit)) {
       setError("Please fill in all ingredient fields")
       toast({
@@ -108,10 +141,9 @@ export function RecipeForm() {
         title: "Validation Error",
         description: "Please fill in all ingredient fields",
       })
-      return
+      return false
     }
 
-    // Validate instructions
     if (instructions.some(inst => !inst.trim())) {
       setError("Please fill in all instruction steps")
       toast({
@@ -119,36 +151,52 @@ export function RecipeForm() {
         title: "Validation Error",
         description: "Please fill in all instruction steps",
       })
+      return false
+    }
+
+    return true
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!validateForm()) {
       return
     }
 
+    const recipeData = {
+      title,
+      ingredients: ingredients.map(ing => ({
+        ...ing,
+        amount: Number(ing.amount),
+      })),
+      instructions: instructions.filter(inst => inst.trim()),
+      prepTime,
+      cookTime,
+      servings,
+      difficulty,
+      cuisineType,
+      tags,
+    }
+
     try {
-      await createRecipe.mutateAsync({
-        title,
-        ingredients: ingredients.map(ing => ({
-          ...ing,
-          amount: Number(ing.amount),
-        })),
-        instructions: instructions.filter(inst => inst.trim()),
-        prepTime,
-        cookTime,
-        servings,
-        difficulty,
-        cuisineType,
-        tags,
-      })
-      resetForm()
-      toast({
-        title: "Success",
-        description: "Recipe created successfully",
-      })
+      if (recipeId) {
+        await updateRecipe.mutateAsync({
+          id: recipeId,
+          data: recipeData,
+        })
+      } else {
+        await createRecipe.mutateAsync(recipeData)
+        resetForm()
+      }
     } catch (error) {
-      console.error("Error creating recipe:", error)
-      setError("Failed to create recipe. Please try again.")
+      console.error("Error saving recipe:", error)
+      setError("Failed to save recipe. Please try again.")
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to create recipe. Please try again.",
+        description: "Failed to save recipe. Please try again.",
       })
     }
   }
@@ -262,38 +310,38 @@ export function RecipeForm() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-2">Prep Time (minutes)</label>
+          <label className="block text-sm font-medium mb-2">Prep Time (min)</label>
           <Input
             type="number"
             value={prepTime}
             onChange={(e) => setPrepTime(Number(e.target.value))}
-            min="0"
             required
+            min="0"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-2">Cook Time (minutes)</label>
+          <label className="block text-sm font-medium mb-2">Cook Time (min)</label>
           <Input
             type="number"
             value={cookTime}
             onChange={(e) => setCookTime(Number(e.target.value))}
-            min="0"
             required
+            min="0"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-2">Servings</label>
           <Input
             type="number"
             value={servings}
             onChange={(e) => setServings(Number(e.target.value))}
-            min="1"
             required
+            min="1"
           />
         </div>
         <div>
@@ -316,7 +364,7 @@ export function RecipeForm() {
         <Input
           value={cuisineType}
           onChange={(e) => setCuisineType(e.target.value)}
-          placeholder="e.g., Italian, Japanese, Mexican"
+          placeholder="e.g., Italian, Mexican, etc."
         />
       </div>
 
@@ -327,7 +375,7 @@ export function RecipeForm() {
           </Button>
         </DialogClose>
         <Button type="submit">
-          Create Recipe
+          {recipeId ? "Update Recipe" : "Create Recipe"}
         </Button>
       </div>
     </form>
