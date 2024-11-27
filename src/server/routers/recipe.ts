@@ -517,4 +517,87 @@ export const recipeRouter = router({
         });
       }
     }),
+
+  saveSession: publicProcedure
+    .input(z.object({
+      recipeId: z.string(),
+      currentStep: z.number(),
+      notes: z.string(),
+      ingredients: z.string(),
+      instructions: z.string(),
+      startTime: z.date(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        // First, mark any existing incomplete sessions as abandoned
+        await prisma.cookingHistory.updateMany({
+          where: {
+            recipeId: input.recipeId,
+            completedAt: null,
+          },
+          data: {
+            completedAt: new Date(),
+            notes: "Session abandoned",
+          },
+        });
+
+        // Create new session
+        return await prisma.cookingHistory.create({
+          data: {
+            recipeId: input.recipeId,
+            startedAt: input.startTime,
+            currentStep: input.currentStep,
+            notes: input.notes,
+            ingredients: input.ingredients,
+            instructions: input.instructions,
+            completedAt: null,
+          },
+        });
+      } catch (error) {
+        console.error('Error saving session:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to save cooking session',
+        });
+      }
+    }),
+
+  resumeSession: publicProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      try {
+        return await prisma.cookingHistory.findUnique({
+          where: { id: input },
+        });
+      } catch (error) {
+        console.error('Error resuming session:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to resume cooking session',
+        });
+      }
+    }),
+
+  updateStep: publicProcedure
+    .input(z.object({
+      recipeId: z.string(),
+      instructions: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        return await prisma.recipe.update({
+          where: { id: input.recipeId },
+          data: {
+            instructions: input.instructions,
+            updatedAt: new Date(),
+          },
+        });
+      } catch (error) {
+        console.error('Error updating step:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to update recipe step',
+        });
+      }
+    }),
 }); 

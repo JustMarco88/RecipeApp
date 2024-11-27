@@ -39,9 +39,12 @@ model CookingHistory {
   recipeId      String
   recipe        Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   startedAt     DateTime @default(now())
-  completedAt   DateTime
-  actualTime    Int      // In minutes
-  servingsCooked Int
+  completedAt   DateTime?
+  currentStep   Int      @default(0)
+  actualTime    Int?     // In minutes
+  servingsCooked Int?
   notes         String?  // Optional cooking notes
+  ingredients   String?  // Serialized state of ingredients with checked status
+  instructions  String?  // Serialized state of instructions with checked status
   createdAt     DateTime @default(now())
 } 

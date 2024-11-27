@@ -171,7 +171,10 @@ export function RecipeList() {
     return (
       <CookingView
         recipe={cookingViewRecipe}
-        onClose={() => setCookingViewRecipe(null)}
+        onClose={() => {
+          setCookingViewRecipe(null)
+          utils.recipe.getAll.invalidate()
+        }}
       />
     )
   }
@@ -354,7 +357,6 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook }: RecipeCardProps) {
               <History className="h-3 w-3" />
               <span>
                 Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
-                ({lastCooked.servingsCooked} servings)
               </span>
             </div>
           )}

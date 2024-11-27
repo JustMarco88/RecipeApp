@@ -4,13 +4,22 @@ import { useToast } from "@/hooks/use-toast"
 import { type Recipe } from "@/types/recipe"
 import { type RecipeIngredient } from "@/types/recipe"
 import { trpc } from "@/utils/trpc"
-import { X, ChevronLeft, ChevronRight, Clock, Flame, GaugeCircle, TimerIcon, Plus, Minus, Play, Pause, ChevronDown, ChevronUp, Trash2, History } from "lucide-react"
+import { X, ChevronLeft, ChevronRight, Clock, Flame, GaugeCircle, TimerIcon, Plus, Minus, Play, Pause, ChevronDown, ChevronUp, Trash2, History, Pencil } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { formatDistanceToNow } from "date-fns"
 import { Label } from "@/components/ui/label"
 import Image from "next/image"
 import { type CookingHistory } from "@/types/recipe"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { RecipeForm } from "./recipe-form"
 
 // Quick timer presets
 const QUICK_TIMERS = [
@@ -35,6 +44,7 @@ interface CookingViewProps {
 
 function CookingHistoryList({ recipeId }: { recipeId: string }) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [sessionToDelete, setSessionToDelete] = useState<CookingHistory | null>(null)
   const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipeId)
   const utils = trpc.useContext()
   const { toast } = useToast()
@@ -47,6 +57,7 @@ function CookingHistoryList({ recipeId }: { recipeId: string }) {
         title: "Success",
         description: "Cooking session deleted",
       })
+      setSessionToDelete(null)
     },
   })
 
@@ -94,11 +105,7 @@ function CookingHistoryList({ recipeId }: { recipeId: string }) {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => {
-                  if (confirm('Are you sure you want to delete this cooking session?')) {
-                    deleteCookingSession.mutate(session.id)
-                  }
-                }}
+                onClick={() => setSessionToDelete(session)}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -106,8 +113,56 @@ function CookingHistoryList({ recipeId }: { recipeId: string }) {
           ))}
         </div>
       )}
+
+      <Dialog open={!!sessionToDelete} onOpenChange={(open) => !open && setSessionToDelete(null)}>
+        <DialogContent onKeyDown={(e) => {
+          if (e.key === 'Enter' && sessionToDelete) {
+            deleteCookingSession.mutate(sessionToDelete.id)
+          }
+        }}>
+          <DialogHeader>
+            <DialogTitle>Delete Cooking Session</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this cooking session? This action cannot be undone.
+              Press Enter to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setSessionToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (sessionToDelete) {
+                  deleteCookingSession.mutate(sessionToDelete.id)
+                }
+              }}
+            >
+              Delete Session
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
+}
+
+function shouldConfirmClose(
+  startTime: Date,
+  currentStep: number,
+  totalSteps: number,
+  notes: string
+): boolean {
+  const timeSpentMinutes = (Date.now() - startTime.getTime()) / 1000 / 60
+  const hasProgress = currentStep > 0
+  const hasNotes = notes.trim().length > 0
+  const significantTimeSpent = timeSpentMinutes >= 5
+
+  return (hasProgress || hasNotes) && significantTimeSpent
 }
 
 export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element {
@@ -148,9 +203,82 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   const [newTimerName, setNewTimerName] = useState("")
   const [newTimerDuration, setNewTimerDuration] = useState(5)
   const [scale, setScale] = useState(1)
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const { toast } = useToast()
-
   const utils = trpc.useContext()
+  const [editingStep, setEditingStep] = useState<number | null>(null)
+  const [editedStepText, setEditedStepText] = useState("")
+
+  // Query for existing session
+  const { data: existingSession } = trpc.recipe.getCurrentCookingSession.useQuery({
+    recipeId: recipe.id
+  })
+
+  // Save session mutation
+  const saveSession = trpc.recipe.saveSession.useMutation({
+    onSuccess: () => {
+      toast({
+        title: "Progress Saved",
+        description: "Your cooking session has been saved",
+      })
+      onClose()
+    },
+  })
+
+  // Resume session mutation
+  const resumeSession = trpc.recipe.resumeSession.useMutation({
+    onSuccess: (session) => {
+      if (session) {
+        setCurrentStep(session.currentStep)
+        setNotes(session.notes || "")
+        if (session.ingredients) {
+          setIngredients(JSON.parse(session.ingredients))
+        }
+        if (session.instructions) {
+          setInstructions(JSON.parse(session.instructions))
+        }
+      }
+    },
+  })
+
+  // Check for existing session on mount
+  useEffect(() => {
+    if (existingSession) {
+      const timeSinceStart = (Date.now() - new Date(existingSession.startedAt).getTime()) / 1000 / 60
+      if (timeSinceStart < 120) { // Less than 2 hours old
+        Dialog.confirm({
+          title: "Resume Cooking Session?",
+          description: `You have a cooking session from ${formatDistanceToNow(new Date(existingSession.startedAt))} ago. Would you like to resume where you left off?`,
+          confirmText: "Resume Session",
+          cancelText: "Start Fresh",
+        }).then((confirmed) => {
+          if (confirmed) {
+            resumeSession.mutate(existingSession.id)
+          }
+        })
+      }
+    }
+  }, [existingSession])
+
+  const handleSaveAndExit = async () => {
+    try {
+      await saveSession.mutateAsync({
+        recipeId: recipe.id,
+        currentStep,
+        notes,
+        ingredients: JSON.stringify(ingredients),
+        instructions: JSON.stringify(instructions),
+        startTime,
+      })
+    } catch (error) {
+      console.error('Error saving session:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save cooking session",
+      })
+    }
+  }
 
   // Timer functionality
   useEffect(() => {
@@ -290,13 +418,86 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
     return (numericValue * scale).toFixed(2).replace(/\.?0+$/, "");
   }
 
+  const handleClose = () => {
+    if (shouldConfirmClose(startTime, currentStep, instructions.length, notes)) {
+      setShowCloseConfirm(true)
+    } else {
+      onClose()
+    }
+  }
+
+  const updateStep = trpc.recipe.updateStep.useMutation({
+    onSuccess: () => {
+      utils.recipe.getById.invalidate(recipe.id)
+      utils.recipe.getAll.invalidate()
+      toast({
+        title: "Step Updated",
+        description: "Recipe instruction has been updated",
+      })
+      setEditingStep(null)
+    },
+  })
+
+  const handleStepEdit = (index: number) => {
+    setEditingStep(index)
+    setEditedStepText(instructions[index].text)
+  }
+
+  const handleStepSave = async () => {
+    if (editingStep === null) return
+
+    try {
+      const updatedInstructions = [...instructions]
+      updatedInstructions[editingStep] = {
+        ...updatedInstructions[editingStep],
+        text: editedStepText,
+      }
+
+      await updateStep.mutateAsync({
+        recipeId: recipe.id,
+        instructions: JSON.stringify(updatedInstructions.map(i => i.text)),
+      })
+
+      setInstructions(updatedInstructions)
+    } catch (error) {
+      console.error('Error updating step:', error)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update step",
+      })
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-background z-50 overflow-auto">
       <div className="container mx-auto p-4 max-w-6xl">
         {/* Enhanced Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-semibold">{recipe.title}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-semibold">{recipe.title}</h2>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 opacity-70 hover:opacity-100"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Edit Recipe</DialogTitle>
+                    <DialogDescription>
+                      Modify your recipe details
+                    </DialogDescription>
+                  </DialogHeader>
+                  <RecipeForm recipeId={recipe.id} />
+                </DialogContent>
+              </Dialog>
+            </div>
             <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />
@@ -315,7 +516,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
               </div>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={handleClose}>
             <X className="h-6 w-6" />
           </Button>
         </div>
@@ -461,12 +662,46 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
                     className={`space-y-2 ${
                       index === currentStep ? "bg-primary/10" : "hover:bg-muted/50"
                     } rounded transition-colors p-4`}
+                    onDoubleClick={() => handleStepEdit(index)}
                   >
                     <div className="flex items-start gap-4">
                       <span className="font-mono text-lg font-bold">
                         {index + 1}
                       </span>
-                      <p className="flex-1">{step.text}</p>
+                      {editingStep === index ? (
+                        <div className="flex-1 space-y-2">
+                          <Textarea
+                            value={editedStepText}
+                            onChange={(e) => setEditedStepText(e.target.value)}
+                            className="min-h-[100px]"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.metaKey) {
+                                handleStepSave()
+                              } else if (e.key === 'Escape') {
+                                setEditingStep(null)
+                              }
+                            }}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingStep(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handleStepSave}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="flex-1">{step.text}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -500,6 +735,44 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
             </div>
           </div>
         </div>
+
+        <Dialog open={showCloseConfirm} onOpenChange={(open) => !open && setShowCloseConfirm(false)}>
+          <DialogContent onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              onClose()
+            }
+          }}>
+            <DialogHeader>
+              <DialogTitle>Exit Cooking Mode?</DialogTitle>
+              <DialogDescription>
+                You've been cooking for {Math.floor((Date.now() - startTime.getTime()) / 1000 / 60)} minutes
+                {currentStep > 0 && ` and reached step ${currentStep + 1} of ${instructions.length}`}
+                {notes.trim().length > 0 && ` with notes added`}.
+                Would you like to save your progress before leaving?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-3 mt-4">
+              <Button
+                variant="outline"
+                onClick={() => setShowCloseConfirm(false)}
+              >
+                Continue Cooking
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={handleSaveAndExit}
+              >
+                Save & Exit
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={onClose}
+              >
+                Exit Without Saving
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
