@@ -10,12 +10,72 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { RecipeForm } from "./recipe-form"
 import { CookingView } from "./cooking-view"
 import { useToast } from "@/hooks/use-toast"
 import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { type Recipe, type CookingHistory, type RecipeWithHistory } from "@/types/recipe"
+
+type SortOption = {
+  value: string
+  label: string
+  sortFn: (a: RecipeWithHistory, b: RecipeWithHistory) => number
+}
+
+const sortOptions: SortOption[] = [
+  {
+    value: "newest",
+    label: "Newly Added",
+    sortFn: (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  },
+  {
+    value: "lastCooked",
+    label: "Recently Cooked",
+    sortFn: (a, b) => {
+      const aLastCooked = a.cookingHistory?.[0]?.completedAt
+      const bLastCooked = b.cookingHistory?.[0]?.completedAt
+      if (!aLastCooked && !bLastCooked) return 0
+      if (!aLastCooked) return 1
+      if (!bLastCooked) return -1
+      return new Date(bLastCooked).getTime() - new Date(aLastCooked).getTime()
+    },
+  },
+  {
+    value: "leastCooked",
+    label: "Least Recently Cooked",
+    sortFn: (a, b) => {
+      const aLastCooked = a.cookingHistory?.[0]?.completedAt
+      const bLastCooked = b.cookingHistory?.[0]?.completedAt
+      if (!aLastCooked && !bLastCooked) return 0
+      if (!aLastCooked) return -1
+      if (!bLastCooked) return 1
+      return new Date(aLastCooked).getTime() - new Date(bLastCooked).getTime()
+    },
+  },
+  {
+    value: "mostCooked",
+    label: "Most Cooked",
+    sortFn: (a, b) => (b.cookingHistory?.length || 0) - (a.cookingHistory?.length || 0),
+  },
+  {
+    value: "quickest",
+    label: "Quickest to Make",
+    sortFn: (a, b) => (a.prepTime + a.cookTime) - (b.prepTime + b.cookTime),
+  },
+  {
+    value: "alphabetical",
+    label: "Alphabetical",
+    sortFn: (a, b) => a.title.localeCompare(b.title),
+  },
+]
 
 export function RecipeList() {
   const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery(undefined, {
@@ -27,6 +87,7 @@ export function RecipeList() {
   const [cookingViewRecipe, setCookingViewRecipe] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
+  const [sortBy, setSortBy] = useState<string>("newest")
 
   const deleteRecipe = trpc.recipe.delete.useMutation({
     onSuccess: () => {
@@ -84,42 +145,19 @@ export function RecipeList() {
     }
   }
 
-  const filteredRecipes = (recipes as RecipeWithHistory[] | undefined)?.filter(recipe => {
-    if (!searchQuery.trim()) return true
-
-    const searchTerms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    
-    // Search in title
-    if (searchTerms.every(term => recipe.title.toLowerCase().includes(term))) {
-      return true
-    }
-
-    // Search in ingredients
-    if (searchInIngredients(recipe, searchTerms)) {
-      return true
-    }
-
-    // Search in instructions
-    if (searchInInstructions(recipe, searchTerms)) {
-      return true
-    }
-
-    // Search in cuisine type
-    if (recipe.cuisineType && searchTerms.every(term => 
-      recipe.cuisineType?.toLowerCase().includes(term)
-    )) {
-      return true
-    }
-
-    // Search in tags
-    if (searchTerms.every(term =>
-      recipe.tags.some(tag => tag.toLowerCase().includes(term))
-    )) {
-      return true
-    }
-
-    return false
-  })
+  const sortedAndFilteredRecipes = (recipes as RecipeWithHistory[] | undefined)
+    ?.filter(recipe => {
+      if (!searchQuery.trim()) return true
+      const searchTerms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+      return (
+        searchTerms.every(term => recipe.title.toLowerCase().includes(term)) ||
+        searchInIngredients(recipe, searchTerms) ||
+        searchInInstructions(recipe, searchTerms) ||
+        (recipe.cuisineType && searchTerms.every(term => recipe.cuisineType?.toLowerCase().includes(term))) ||
+        searchTerms.every(term => recipe.tags.some(tag => tag.toLowerCase().includes(term)))
+      )
+    })
+    .sort(sortOptions.find(option => option.value === sortBy)?.sortFn)
 
   if (isLoading) {
     return <div>Loading recipes...</div>
@@ -161,33 +199,47 @@ export function RecipeList() {
         </Dialog>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search recipes by title, ingredients, instructions..."
-          className="pl-9 pr-9"
-        />
-        {searchQuery && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
-            onClick={() => setSearchQuery("")}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
+      <div className="flex gap-4 items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search recipes by title, ingredients, instructions..."
+            className="pl-9 pr-9"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
+              onClick={() => setSearchQuery("")}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Sort by..." />
+          </SelectTrigger>
+          <SelectContent>
+            {sortOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {filteredRecipes?.length === 0 ? (
+      {sortedAndFilteredRecipes?.length === 0 ? (
         <div className="text-center text-muted-foreground py-8">
           No recipes found matching "{searchQuery}"
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredRecipes?.map((recipe) => (
+          {sortedAndFilteredRecipes?.map((recipe) => (
             <RecipeCard
               key={recipe.id}
               recipe={recipe}
@@ -237,20 +289,27 @@ interface RecipeCardProps {
 function RecipeCard({ recipe, onEdit, onDelete, onCook }: RecipeCardProps) {
   const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipe.id)
   const lastCooked = history?.[0]
+  const cookCount = history?.length || 0
 
   return (
     <div className="border rounded-lg shadow-sm overflow-hidden">
       <div className="relative aspect-video w-full bg-muted">
         {recipe.imageUrl ? (
-          <img
-            src={recipe.imageUrl}
-            alt={recipe.title}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              console.error('Image failed to load:', recipe.imageUrl);
-              (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg';
-            }}
-          />
+          <>
+            <img
+              src={recipe.imageUrl}
+              alt={recipe.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                console.error('Image failed to load:', recipe.imageUrl)
+                (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
+              }}
+            />
+            <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1 text-white text-sm font-medium flex items-center gap-1">
+              <ChefHat className="h-4 w-4" />
+              <span>{cookCount}x</span>
+            </div>
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
             <ImagePlus className="h-12 w-12" />
