@@ -42,5 +42,6 @@ model CookingHistory {
   completedAt   DateTime
   actualTime    Int      // In minutes
   servingsCooked Int
+  notes         String?  // Optional cooking notes
   createdAt     DateTime @default(now())
 } 

@@ -10,10 +10,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { trpc } from "@/utils/trpc"
-import { Plus, Minus, ImagePlus, X } from "lucide-react"
+import { Plus, Minus, ImagePlus, X, Loader2, Wand2 } from "lucide-react"
 import { DialogClose } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { type Ingredient } from "@/types/recipe"
+import { type RecipeSuggestion } from "@/utils/claude"
 
 type Difficulty = "Easy" | "Medium" | "Hard"
 
@@ -25,7 +26,7 @@ interface RecipeFormProps {
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
-export function RecipeForm({ recipeId }: RecipeFormProps) {
+export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
   const [title, setTitle] = useState("")
   const [ingredients, setIngredients] = useState<Ingredient[]>([
     { name: "", amount: 0, unit: "" },
@@ -39,10 +40,12 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
   const [tags, setTags] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
-  const [imageUrl, setImageUrl] = useState("")
+  const [imageUrl, setImageUrl] = useState<string>('')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [isGettingSuggestions, setIsGettingSuggestions] = useState(false)
 
   const utils = trpc.useContext()
   
@@ -52,6 +55,7 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
 
   const uploadImage = trpc.recipe.uploadImage.useMutation({
     onSuccess: (url) => {
+      console.log('Image upload success:', url)
       setImageUrl(url)
       setIsUploading(false)
       toast({
@@ -60,6 +64,7 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       })
     },
     onError: (error) => {
+      console.error('Image upload error:', error)
       setImageError("Failed to upload image")
       setIsUploading(false)
       toast({
@@ -69,6 +74,8 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       })
     },
   })
+
+  const deleteImage = trpc.recipe.deleteImage.useMutation()
 
   const createRecipe = trpc.recipe.create.useMutation({
     onSuccess: () => {
@@ -89,6 +96,67 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       })
     },
   })
+
+  const getSuggestions = trpc.recipe.getSuggestions.useMutation({
+    onSuccess: (suggestions) => {
+      // Only update if fields are empty or user confirms
+      const hasExistingData = ingredients.some(i => i.name) || 
+        instructions.some(i => i) ||
+        prepTime > 0 ||
+        cookTime > 0;
+
+      if (hasExistingData) {
+        const confirmed = window.confirm(
+          "This will replace your existing recipe details. Do you want to continue?"
+        );
+        if (!confirmed) return;
+      }
+
+      // Apply suggestions
+      setIngredients(suggestions.ingredients);
+      setInstructions(suggestions.instructions);
+      setPrepTime(suggestions.prepTime);
+      setCookTime(suggestions.cookTime);
+      setDifficulty(suggestions.difficulty);
+      setCuisineType(suggestions.cuisineType);
+      setTags(suggestions.tags);
+
+      toast({
+        title: "Success",
+        description: "Recipe suggestions applied!",
+      });
+    },
+    onError: (error) => {
+      console.error('Error getting suggestions:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to get recipe suggestions. Please try again or enter details manually.",
+      });
+    },
+    onSettled: () => {
+      setIsGettingSuggestions(false);
+    },
+  });
+
+  const handleGetSuggestions = async () => {
+    if (!title.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter a recipe title first",
+      });
+      return;
+    }
+
+    try {
+      setIsGettingSuggestions(true);
+      await getSuggestions.mutateAsync({ title });
+    } catch (error) {
+      console.error('Error in handleGetSuggestions:', error);
+      // Error will be handled by onError callback
+    }
+  };
 
   useEffect(() => {
     if (existingRecipe) {
@@ -127,6 +195,7 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
   }, [existingRecipe, toast])
 
   const validateImage = (file: File): string | null => {
+    console.log('Validating image:', file.name, file.size, file.type)
     if (file.size > MAX_FILE_SIZE) {
       return "Image size must be less than 5MB"
     }
@@ -136,54 +205,181 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
     return null
   }
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    setImageError(null)
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Drag enter');
+    setIsDragging(true);
+  };
 
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Drag leave');
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('Drag over');
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('File dropped');
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
     if (file) {
-      const error = validateImage(file)
-      if (error) {
-        setImageError(error)
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error,
-        })
-        return
-      }
+      console.log('Processing dropped file:', file.name);
+      await processFile(file);
+    }
+  };
 
-      try {
-        setIsUploading(true)
-        setImageFile(file)
+  const processFile = async (file: File) => {
+    console.log('Processing file:', {
+      name: file.name,
+      size: file.size,
+      type: file.type
+    });
 
-        // Convert file to base64
-        const reader = new FileReader()
-        reader.onloadend = async () => {
-          const base64String = reader.result as string
-          await uploadImage.mutateAsync({
+    setImageError(null);
+    const error = validateImage(file);
+    if (error) {
+      console.error('Image validation error:', error);
+      setImageError(error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error,
+      });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setImageFile(file);
+
+      const reader = new FileReader();
+      reader.onloadstart = () => console.log('Started reading file');
+      reader.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = (event.loaded / event.total) * 100;
+          console.log(`Reading progress: ${progress.toFixed(2)}%`);
+        }
+      };
+
+      reader.onloadend = async () => {
+        console.log('File read complete');
+        try {
+          const base64String = reader.result as string;
+          console.log('Starting upload to server...');
+          const imageUrl = await uploadImage.mutateAsync({
             image: base64String,
             contentType: file.type,
-          })
+          });
+          console.log('Upload successful, image URL:', imageUrl);
+          setImageUrl(imageUrl);
+          setIsUploading(false);
+          toast({
+            title: "Success",
+            description: "Image uploaded successfully",
+          });
+        } catch (error) {
+          console.error('Upload error:', error);
+          setImageError("Failed to upload image");
+          setIsUploading(false);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to upload image to server",
+          });
         }
-        reader.readAsDataURL(file)
-      } catch (error) {
-        console.error('Error uploading image:', error)
-        setImageError("Failed to upload image")
-        setIsUploading(false)
+      };
+
+      reader.onerror = (error) => {
+        console.error('FileReader error:', error);
+        setImageError("Failed to read image file");
+        setIsUploading(false);
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to upload image",
-        })
+          description: "Failed to read image file",
+        });
+      };
+
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setImageError("Failed to process image");
+      setIsUploading(false);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to process image",
+      });
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('Image upload triggered');
+    const file = e.target.files?.[0];
+    if (file) {
+      await processFile(file);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (imageUrl) {
+      try {
+        console.log('Removing image:', imageUrl);
+        setIsUploading(true);
+
+        // Delete the file from the server
+        await deleteImage.mutateAsync(imageUrl);
+
+        // If this is an edit form, update the recipe in the database
+        if (existingRecipe?.id) {
+          const recipeData = {
+            title: existingRecipe.title,
+            ingredients: JSON.parse(existingRecipe.ingredients as string),
+            instructions: JSON.parse(existingRecipe.instructions as string),
+            prepTime: existingRecipe.prepTime,
+            cookTime: existingRecipe.cookTime,
+            servings: existingRecipe.servings,
+            difficulty: existingRecipe.difficulty as "Easy" | "Medium" | "Hard",
+            cuisineType: existingRecipe.cuisineType || undefined,
+            tags: existingRecipe.tags,
+            imageUrl: '',
+            nutrition: existingRecipe.nutrition || undefined,
+          };
+
+          await updateRecipe.mutateAsync({
+            id: existingRecipe.id,
+            data: recipeData
+          });
+        }
+
+        setImageUrl('');
+        setImageFile(null);
+        toast({
+          title: "Success",
+          description: "Image removed successfully",
+        });
+      } catch (error) {
+        console.error('Error removing image:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to remove image",
+        });
+      } finally {
+        setIsUploading(false);
       }
     }
-  }
-
-  const handleRemoveImage = () => {
-    setImageUrl("")
-    setImageFile(null)
-    setImageError(null)
-  }
+  };
 
   const addIngredient = () => {
     setIngredients([...ingredients, { name: "", amount: 0, unit: "" }])
@@ -242,42 +438,42 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
 
   const validateForm = () => {
     if (!title.trim()) {
-      onError?.("Please enter a recipe title")
+      setError("Please enter a recipe title")
       return false
     }
 
     if (ingredients.some(ing => !ing.name.trim() || !ing.unit.trim())) {
-      onError?.("Please fill in all ingredient fields")
+      setError("Please fill in all ingredient fields")
       return false
     }
 
     if (ingredients.some(ing => ing.amount <= 0)) {
-      onError?.("Ingredient amounts must be greater than 0")
+      setError("Ingredient amounts must be greater than 0")
       return false
     }
 
     if (instructions.some(inst => !inst.trim())) {
-      onError?.("Please fill in all instruction steps")
+      setError("Please fill in all instruction steps")
       return false
     }
 
     if (prepTime < 0 || cookTime < 0) {
-      onError?.("Prep and cook times cannot be negative")
+      setError("Prep and cook times cannot be negative")
       return false
     }
 
     if (servings <= 0) {
-      onError?.("Number of servings must be greater than 0")
+      setError("Number of servings must be greater than 0")
       return false
     }
 
-    onError?.(null)
+    setError(null)
     return true
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onError?.(null)
+    setError(null)
 
     if (!validateForm()) {
       return
@@ -316,7 +512,7 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       }
     } catch (error) {
       console.error("Error saving recipe:", error)
-      onError?.("Failed to save recipe. Please try again.")
+      setError("Failed to save recipe. Please try again.")
     }
   }
 
@@ -374,47 +570,73 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
       )}
 
       <div className="space-y-4">
-        <div className="relative group mb-6">
+        <div 
+          className={`relative group mb-6 ${isDragging ? 'border-2 border-primary border-dashed' : ''}`}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
           <div className="aspect-video w-full bg-muted rounded-lg overflow-hidden">
-            {imageUrl ? (
-              <div className="relative w-full h-full">
+            {imageUrl && imageUrl !== '' ? (
+              <div className="relative w-full h-full group">
                 <img
                   src={imageUrl}
                   alt="Recipe preview"
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    console.error('Image failed to load:', imageUrl);
+                    // If image fails to load, clear the URL
+                    setImageUrl('');
+                  }}
                 />
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="icon"
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={handleRemoveImage}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={handleRemoveImage}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                <ImagePlus className="h-12 w-12" />
+              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
+                <ImagePlus className="h-12 w-12 mb-2" />
+                <p className="text-sm text-center">
+                  {isDragging ? 'Drop image here' : 'Drag and drop an image here, or click to select'}
+                </p>
               </div>
             )}
             <div className="absolute inset-0 flex items-center justify-center">
-              <label className="cursor-pointer">
+              <label className="cursor-pointer z-10">
                 <input
                   type="file"
                   accept={ALLOWED_FILE_TYPES.join(',')}
                   className="hidden"
                   onChange={handleImageUpload}
                   disabled={isUploading}
+                  onClick={(e) => {
+                    console.log('File input clicked');
+                    (e.target as HTMLInputElement).value = '';
+                  }}
                 />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className={`opacity-0 group-hover:opacity-100 transition-opacity ${imageUrl ? 'bg-black/50' : ''}`}
-                  disabled={isUploading}
-                >
-                  {isUploading ? "Uploading..." : imageUrl ? "Change Image" : "Add Image"}
-                </Button>
+                {!imageUrl && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="bg-white hover:bg-gray-100"
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <div className="flex items-center gap-2">
+                        <span className="animate-spin">⏳</span> Uploading...
+                      </div>
+                    ) : "Select Image"}
+                  </Button>
+                )}
               </label>
             </div>
           </div>
@@ -422,19 +644,40 @@ export function RecipeForm({ recipeId }: RecipeFormProps) {
             <p className="text-sm text-destructive mt-2">{imageError}</p>
           )}
           <p className="text-sm text-muted-foreground mt-2 text-center">
-            Click to {imageUrl ? "change" : "add"} recipe image (max 5MB, JPEG/PNG/WebP)
+            {isUploading ? "Uploading..." : "Supported formats: JPEG, PNG, WebP (max 5MB)"}
           </p>
         </div>
 
         <div className="space-y-4">
           <div>
             <label className="text-lg font-semibold mb-2 block">Recipe Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter recipe title"
-              required
-            />
+            <div className="flex gap-2">
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Enter recipe title"
+                required
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGetSuggestions}
+                disabled={isGettingSuggestions || !title.trim()}
+              >
+                {isGettingSuggestions ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Getting Suggestions...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="h-4 w-4 mr-2" />
+                    Get Suggestions
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

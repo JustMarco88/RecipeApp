@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { RecipeForm } from "./recipe-form"
 import { CookingView } from "./cooking-view"
 import { useToast } from "@/hooks/use-toast"
-import { Pencil, Trash2, ChefHat, History, Search, X, Plus } from "lucide-react"
+import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { type Recipe, type CookingHistory, type RecipeWithHistory } from "@/types/recipe"
 
@@ -26,6 +26,7 @@ export function RecipeList() {
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
   const [cookingViewRecipe, setCookingViewRecipe] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
 
   const deleteRecipe = trpc.recipe.delete.useMutation({
     onSuccess: () => {
@@ -34,6 +35,7 @@ export function RecipeList() {
         title: "Success",
         description: "Recipe deleted successfully",
       })
+      setRecipeToDelete(null)
     },
     onError: () => {
       toast({
@@ -44,9 +46,13 @@ export function RecipeList() {
     },
   })
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this recipe?")) {
-      await deleteRecipe.mutateAsync(id)
+  const handleDelete = async (recipe: Recipe) => {
+    setRecipeToDelete(recipe)
+  }
+
+  const confirmDelete = async () => {
+    if (recipeToDelete) {
+      await deleteRecipe.mutateAsync(recipeToDelete.id)
     }
   }
 
@@ -143,7 +149,7 @@ export function RecipeList() {
               New Recipe
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create New Recipe</DialogTitle>
               <DialogDescription>
@@ -186,12 +192,37 @@ export function RecipeList() {
               key={recipe.id}
               recipe={recipe}
               onEdit={() => setSelectedRecipe(recipe.id)}
-              onDelete={() => handleDelete(recipe.id)}
+              onDelete={() => handleDelete(recipe)}
               onCook={() => setCookingViewRecipe(recipe.id)}
             />
           ))}
         </div>
       )}
+
+      <Dialog open={!!recipeToDelete} onOpenChange={(open) => !open && setRecipeToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Recipe</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{recipeToDelete?.title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setRecipeToDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+            >
+              Delete Recipe
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -208,46 +239,67 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook }: RecipeCardProps) {
   const lastCooked = history?.[0]
 
   return (
-    <div className="p-4 border rounded-lg shadow-sm space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">{recipe.title}</h3>
-        <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={onCook}>
-            <ChefHat className="h-4 w-4" />
-          </Button>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="icon" onClick={onEdit}>
-                <Pencil className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Recipe</DialogTitle>
-                <DialogDescription>
-                  Modify your recipe details
-                </DialogDescription>
-              </DialogHeader>
-              <RecipeForm recipeId={recipe.id} />
-            </DialogContent>
-          </Dialog>
-          <Button variant="destructive" size="icon" onClick={onDelete}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="text-sm text-muted-foreground space-y-1">
-        <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
-        <p>Difficulty: {recipe.difficulty}</p>
-        {lastCooked && (
-          <div className="flex items-center gap-2 text-xs">
-            <History className="h-3 w-3" />
-            <span>
-              Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
-              ({lastCooked.servingsCooked} servings)
-            </span>
+    <div className="border rounded-lg shadow-sm overflow-hidden">
+      <div className="relative aspect-video w-full bg-muted">
+        {recipe.imageUrl ? (
+          <img
+            src={recipe.imageUrl}
+            alt={recipe.title}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              console.error('Image failed to load:', recipe.imageUrl);
+              (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg';
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImagePlus className="h-12 w-12" />
           </div>
         )}
+      </div>
+      
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">{recipe.title}</h3>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={onCook}>
+              <ChefHat className="h-4 w-4" />
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="icon" onClick={onEdit}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Edit Recipe</DialogTitle>
+                  <DialogDescription>
+                    Modify your recipe details
+                  </DialogDescription>
+                </DialogHeader>
+                <RecipeForm recipeId={recipe.id} />
+              </DialogContent>
+            </Dialog>
+            <Button variant="destructive" size="icon" onClick={onDelete}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="text-sm text-muted-foreground space-y-1">
+          <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
+          <p>Difficulty: {recipe.difficulty}</p>
+          {lastCooked && (
+            <div className="flex items-center gap-2 text-xs">
+              <History className="h-3 w-3" />
+              <span>
+                Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
+                ({lastCooked.servingsCooked} servings)
+              </span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
