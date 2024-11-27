@@ -31,4 +31,4 @@ yarn-error.log*
 next-env.d.ts 
 
 # uploaded files
-/public/uploads/
+/public/uploads/.env
