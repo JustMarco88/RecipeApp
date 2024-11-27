@@ -15,6 +15,7 @@ import { DialogClose } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { type Ingredient } from "@/types/recipe"
 import { type RecipeSuggestion } from "@/utils/claude"
+import { SuggestionReviewDialog } from "./suggestion-review-dialog"
 
 type Difficulty = "Easy" | "Medium" | "Hard"
 
@@ -46,6 +47,8 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isGettingSuggestions, setIsGettingSuggestions] = useState(false)
+  const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
+  const [currentSuggestions, setCurrentSuggestions] = useState<RecipeSuggestion | null>(null)
 
   const utils = trpc.useContext()
   
@@ -99,45 +102,20 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
 
   const getSuggestions = trpc.recipe.getSuggestions.useMutation({
     onSuccess: (suggestions) => {
-      // Only update if fields are empty or user confirms
-      const hasExistingData = ingredients.some(i => i.name) || 
-        instructions.some(i => i) ||
-        prepTime > 0 ||
-        cookTime > 0;
-
-      if (hasExistingData) {
-        const confirmed = window.confirm(
-          "This will replace your existing recipe details. Do you want to continue?"
-        );
-        if (!confirmed) return;
-      }
-
-      // Apply suggestions
-      setIngredients(suggestions.ingredients);
-      setInstructions(suggestions.instructions);
-      setPrepTime(suggestions.prepTime);
-      setCookTime(suggestions.cookTime);
-      setDifficulty(suggestions.difficulty);
-      setCuisineType(suggestions.cuisineType);
-      setTags(suggestions.tags);
-
-      toast({
-        title: "Success",
-        description: "Recipe suggestions applied!",
-      });
+      setCurrentSuggestions(suggestions)
+      setShowSuggestionDialog(true)
+      setIsGettingSuggestions(false)
     },
     onError: (error) => {
-      console.error('Error getting suggestions:', error);
+      console.error('Error getting suggestions:', error)
       toast({
         variant: "destructive",
         title: "Error",
         description: "Failed to get recipe suggestions. Please try again or enter details manually.",
-      });
+      })
+      setIsGettingSuggestions(false)
     },
-    onSettled: () => {
-      setIsGettingSuggestions(false);
-    },
-  });
+  })
 
   const handleGetSuggestions = async () => {
     if (!title.trim()) {
@@ -145,18 +123,77 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
         variant: "destructive",
         title: "Error",
         description: "Please enter a recipe title first",
-      });
-      return;
+      })
+      return
     }
 
+    setIsGettingSuggestions(true)
+    await getSuggestions.mutateAsync({ title })
+  }
+
+  const handleApplySuggestions = async (changes: Partial<RecipeSuggestion>) => {
     try {
-      setIsGettingSuggestions(true);
-      await getSuggestions.mutateAsync({ title });
+      // First apply all the changes
+      if (changes.ingredients) setIngredients(changes.ingredients)
+      if (changes.instructions) setInstructions(changes.instructions)
+      if (changes.prepTime) setPrepTime(changes.prepTime)
+      if (changes.cookTime) setCookTime(changes.cookTime)
+      if (changes.difficulty) setDifficulty(changes.difficulty)
+      if (changes.cuisineType) setCuisineType(changes.cuisineType)
+      if (changes.tags) setTags(changes.tags)
+
+      // If we don't have an image yet and we have ingredients, generate one
+      if (!imageUrl && changes.ingredients && changes.ingredients.length > 0) {
+        console.log('Generating image for recipe:', {
+          title,
+          ingredients: changes.ingredients,
+          cuisineType: changes.cuisineType
+        });
+
+        setIsUploading(true);
+        const generatedImageUrl = await generateImage.mutateAsync({
+          title,
+          ingredients: changes.ingredients,
+          cuisineType: changes.cuisineType,
+        });
+
+        console.log('Generated image URL:', generatedImageUrl);
+        if (generatedImageUrl) {
+          setImageUrl(generatedImageUrl);
+          toast({
+            title: "Success",
+            description: "Generated a recipe image using AI!",
+          });
+        }
+      }
+
+      toast({
+        title: "Success",
+        description: "Changes applied successfully!",
+      });
     } catch (error) {
-      console.error('Error in handleGetSuggestions:', error);
-      // Error will be handled by onError callback
+      console.error('Error applying suggestions:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to apply changes",
+      });
+    } finally {
+      setIsUploading(false);
     }
   };
+
+  const generateImage = trpc.recipe.generateImage.useMutation({
+    onError: (error) => {
+      console.error('Error generating image:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to generate image",
+      });
+      setIsUploading(false);
+    },
+  });
 
   useEffect(() => {
     if (existingRecipe) {
@@ -561,282 +598,377 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
     </div>
   )
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {error && (
-        <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md">
-          {error}
-        </div>
-      )}
+  const handleGenerateImage = async () => {
+    if (!title || !ingredients.length) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Recipe title and ingredients are required to generate an image",
+      });
+      return;
+    }
 
-      <div className="space-y-4">
-        <div 
-          className={`relative group mb-6 ${isDragging ? 'border-2 border-primary border-dashed' : ''}`}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          <div className="aspect-video w-full bg-muted rounded-lg overflow-hidden">
-            {imageUrl && imageUrl !== '' ? (
-              <div className="relative w-full h-full group">
-                <img
-                  src={imageUrl}
-                  alt="Recipe preview"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    console.error('Image failed to load:', imageUrl);
-                    // If image fails to load, clear the URL
-                    setImageUrl('');
-                  }}
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="icon"
-                    className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={handleRemoveImage}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
-                <ImagePlus className="h-12 w-12 mb-2" />
-                <p className="text-sm text-center">
-                  {isDragging ? 'Drop image here' : 'Drag and drop an image here, or click to select'}
-                </p>
-              </div>
-            )}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <label className="cursor-pointer z-10">
-                <input
-                  type="file"
-                  accept={ALLOWED_FILE_TYPES.join(',')}
-                  className="hidden"
-                  onChange={handleImageUpload}
-                  disabled={isUploading}
-                  onClick={(e) => {
-                    console.log('File input clicked');
-                    (e.target as HTMLInputElement).value = '';
-                  }}
-                />
-                {!imageUrl && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="bg-white hover:bg-gray-100"
-                    disabled={isUploading}
-                  >
-                    {isUploading ? (
-                      <div className="flex items-center gap-2">
-                        <span className="animate-spin">⏳</span> Uploading...
-                      </div>
-                    ) : "Select Image"}
-                  </Button>
-                )}
-              </label>
-            </div>
+    setIsUploading(true);
+    try {
+      console.log('Generating image for recipe:', {
+        title,
+        ingredients: ingredients.map(i => i.name).join(', '),
+        cuisineType
+      });
+
+      const localImageUrl = await generateImage.mutateAsync({
+        title,
+        ingredients,
+        cuisineType,
+      });
+
+      console.log('Generated new image URL:', localImageUrl);
+      
+      if (!localImageUrl) {
+        throw new Error('No image URL returned');
+      }
+
+      setImageUrl(localImageUrl);
+      toast({
+        title: "Success",
+        description: "Generated a new recipe image!",
+      });
+    } catch (error) {
+      console.error('Failed to generate new image:', error);
+      
+      // Check if it's a billing error
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
+      if (errorMessage.includes('billing') || errorMessage.includes('quota')) {
+        toast({
+          variant: "destructive",
+          title: "Service Unavailable",
+          description: "The AI image generation service is currently unavailable. Please try uploading an image manually.",
+          duration: 5000,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error 
+            ? error.message 
+            : "Failed to generate new image. Please try again or upload manually.",
+        });
+      }
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {error && (
+          <div className="bg-destructive/15 text-destructive px-4 py-2 rounded-md">
+            {error}
           </div>
-          {imageError && (
-            <p className="text-sm text-destructive mt-2">{imageError}</p>
-          )}
-          <p className="text-sm text-muted-foreground mt-2 text-center">
-            {isUploading ? "Uploading..." : "Supported formats: JPEG, PNG, WebP (max 5MB)"}
-          </p>
-        </div>
+        )}
 
         <div className="space-y-4">
-          <div>
-            <label className="text-lg font-semibold mb-2 block">Recipe Title</label>
-            <div className="flex gap-2">
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter recipe title"
-                required
-                className="flex-1"
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Recipe Image</label>
+            <div
+              className={`relative border-2 border-dashed rounded-lg p-4 ${
+                isDragging ? 'border-primary bg-primary/5' : 'border-muted'
+              } ${imageUrl ? 'h-48' : 'h-32'} transition-all`}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
+              {imageUrl ? (
+                <div className="relative h-full">
+                  <img
+                    src={imageUrl}
+                    alt="Recipe"
+                    className="h-full mx-auto object-contain"
+                  />
+                  <div className="absolute top-0 right-0 flex gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={handleGenerateImage}
+                      disabled={isUploading}
+                      title="Generate new image"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Wand2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={handleRemoveImage}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-2">
+                  <div className="flex items-center justify-center gap-2">
+                    <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                    {title && ingredients.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={handleGenerateImage}
+                        disabled={isUploading}
+                        title="Generate image with AI"
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Wand2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <label
+                      htmlFor="image-upload"
+                      className="relative cursor-pointer rounded-md font-semibold text-primary hover:text-primary/80"
+                    >
+                      Upload an image
+                      <input
+                        id="image-upload"
+                        name="image-upload"
+                        type="file"
+                        className="sr-only"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        disabled={isUploading}
+                      />
+                    </label>
+                    {" or drag and drop"}
+                    <p className="text-xs">PNG, JPG or WebP up to 5MB</p>
+                  </div>
+                </div>
+              )}
+              {isUploading && (
+                <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              )}
+            </div>
+            {imageError && (
+              <p className="text-sm text-destructive">{imageError}</p>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-lg font-semibold mb-2 block">Recipe Title</label>
+              <div className="flex gap-2">
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Enter recipe title"
+                  required
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="ml-2"
+                  onClick={handleGetSuggestions}
+                  disabled={isGettingSuggestions}
+                >
+                  {isGettingSuggestions ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <NumberInput
+                label="Prep Time"
+                value={prepTime}
+                onChange={setPrepTime}
+                min={0}
+                step={5}
               />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleGetSuggestions}
-                disabled={isGettingSuggestions || !title.trim()}
+              <NumberInput
+                label="Cook Time"
+                value={cookTime}
+                onChange={setCookTime}
+                min={0}
+                step={5}
+              />
+              <NumberInput
+                label="Servings"
+                value={servings}
+                onChange={setServings}
+                min={1}
+              />
+            </div>
+
+            <div>
+              <label className="text-lg font-semibold mb-4 block">Ingredients</label>
+              <div className="space-y-3">
+                {ingredients.map((ingredient, index) => (
+                  <div key={index} className="flex gap-2 items-start">
+                    <div className="flex-1">
+                      <Input
+                        value={ingredient.name}
+                        onChange={(e) =>
+                          updateIngredient(index, "name", e.target.value)
+                        }
+                        placeholder="Ingredient name"
+                        required
+                      />
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        type="number"
+                        value={ingredient.amount}
+                        onChange={(e) =>
+                          updateIngredient(index, "amount", e.target.value)
+                        }
+                        placeholder="Amount"
+                        required
+                        min="0"
+                        step="any"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        value={ingredient.unit}
+                        onChange={(e) =>
+                          updateIngredient(index, "unit", e.target.value)
+                        }
+                        placeholder="Unit"
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => removeIngredient(index)}
+                      disabled={ingredients.length <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addIngredient}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Ingredient
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-lg font-semibold mb-4 block">Instructions</label>
+              <div className="space-y-3">
+                {instructions.map((instruction, index) => (
+                  <div key={index} className="flex gap-2">
+                    <div className="flex-1">
+                      <Textarea
+                        value={instruction}
+                        onChange={(e) => updateInstruction(index, e.target.value)}
+                        placeholder={`Step ${index + 1}`}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => removeInstruction(index)}
+                      disabled={instructions.length <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addInstruction}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Step
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-lg font-semibold mb-2 block">Difficulty</label>
+              <Select
+                value={difficulty}
+                onValueChange={(value: Difficulty) => setDifficulty(value)}
               >
-                {isGettingSuggestions ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Getting Suggestions...
-                  </>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select difficulty" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Easy">Easy</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Hard">Hard</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="text-lg font-semibold mb-2 block">Cuisine Type</label>
+              <Input
+                value={cuisineType}
+                onChange={(e) => setCuisineType(e.target.value)}
+                placeholder="e.g., Italian, Mexican, etc."
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="submit" disabled={createRecipe.isLoading || updateRecipe.isLoading || isUploading}>
+                {recipeId ? (
+                  updateRecipe.isLoading ? "Updating..." : "Update Recipe"
                 ) : (
-                  <>
-                    <Wand2 className="h-4 w-4 mr-2" />
-                    Get Suggestions
-                  </>
+                  createRecipe.isLoading ? "Creating..." : "Create Recipe"
                 )}
               </Button>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <NumberInput
-              label="Prep Time"
-              value={prepTime}
-              onChange={setPrepTime}
-              min={0}
-              step={5}
-            />
-            <NumberInput
-              label="Cook Time"
-              value={cookTime}
-              onChange={setCookTime}
-              min={0}
-              step={5}
-            />
-            <NumberInput
-              label="Servings"
-              value={servings}
-              onChange={setServings}
-              min={1}
-            />
-          </div>
-
-          <div>
-            <label className="text-lg font-semibold mb-4 block">Ingredients</label>
-            <div className="space-y-3">
-              {ingredients.map((ingredient, index) => (
-                <div key={index} className="flex gap-2 items-start">
-                  <div className="flex-1">
-                    <Input
-                      value={ingredient.name}
-                      onChange={(e) =>
-                        updateIngredient(index, "name", e.target.value)
-                      }
-                      placeholder="Ingredient name"
-                      required
-                    />
-                  </div>
-                  <div className="w-24">
-                    <Input
-                      type="number"
-                      value={ingredient.amount}
-                      onChange={(e) =>
-                        updateIngredient(index, "amount", e.target.value)
-                      }
-                      placeholder="Amount"
-                      required
-                      min="0"
-                      step="any"
-                    />
-                  </div>
-                  <div className="w-24">
-                    <Input
-                      value={ingredient.unit}
-                      onChange={(e) =>
-                        updateIngredient(index, "unit", e.target.value)
-                      }
-                      placeholder="Unit"
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => removeIngredient(index)}
-                    disabled={ingredients.length <= 1}
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addIngredient}
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Ingredient
-              </Button>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-lg font-semibold mb-4 block">Instructions</label>
-            <div className="space-y-3">
-              {instructions.map((instruction, index) => (
-                <div key={index} className="flex gap-2">
-                  <div className="flex-1">
-                    <Textarea
-                      value={instruction}
-                      onChange={(e) => updateInstruction(index, e.target.value)}
-                      placeholder={`Step ${index + 1}`}
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => removeInstruction(index)}
-                    disabled={instructions.length <= 1}
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addInstruction}
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Step
-              </Button>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-lg font-semibold mb-2 block">Difficulty</label>
-            <Select
-              value={difficulty}
-              onValueChange={(value: Difficulty) => setDifficulty(value)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select difficulty" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Easy">Easy</SelectItem>
-                <SelectItem value="Medium">Medium</SelectItem>
-                <SelectItem value="Hard">Hard</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="text-lg font-semibold mb-2 block">Cuisine Type</label>
-            <Input
-              value={cuisineType}
-              onChange={(e) => setCuisineType(e.target.value)}
-              placeholder="e.g., Italian, Mexican, etc."
-            />
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <Button type="submit" disabled={createRecipe.isLoading || updateRecipe.isLoading || isUploading}>
-              {recipeId ? (
-                updateRecipe.isLoading ? "Updating..." : "Update Recipe"
-              ) : (
-                createRecipe.isLoading ? "Creating..." : "Create Recipe"
-              )}
-            </Button>
-          </div>
         </div>
-      </div>
-    </form>
+      </form>
+
+      {currentSuggestions && (
+        <SuggestionReviewDialog
+          isOpen={showSuggestionDialog}
+          onClose={() => setShowSuggestionDialog(false)}
+          currentRecipe={{
+            ingredients,
+            instructions,
+            prepTime,
+            cookTime,
+            difficulty,
+            cuisineType,
+            tags,
+          }}
+          suggestions={currentSuggestions}
+          onApplyChanges={handleApplySuggestions}
+        />
+      )}
+    </>
   )
 } 

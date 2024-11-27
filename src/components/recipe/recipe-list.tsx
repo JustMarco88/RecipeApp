@@ -84,7 +84,7 @@ export function RecipeList() {
   const { toast } = useToast()
   const utils = trpc.useContext()
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
-  const [cookingViewRecipe, setCookingViewRecipe] = useState<string | null>(null)
+  const [cookingViewRecipe, setCookingViewRecipe] = useState<Recipe | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
   const [sortBy, setSortBy] = useState<string>("newest")
@@ -170,7 +170,7 @@ export function RecipeList() {
   if (cookingViewRecipe) {
     return (
       <CookingView
-        recipeId={cookingViewRecipe}
+        recipe={cookingViewRecipe}
         onClose={() => setCookingViewRecipe(null)}
       />
     )
@@ -245,7 +245,7 @@ export function RecipeList() {
               recipe={recipe}
               onEdit={() => setSelectedRecipe(recipe.id)}
               onDelete={() => handleDelete(recipe)}
-              onCook={() => setCookingViewRecipe(recipe.id)}
+              onCook={() => setCookingViewRecipe(recipe)}
             />
           ))}
         </div>

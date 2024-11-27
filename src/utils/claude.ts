@@ -132,4 +132,54 @@ export async function getRecipeSuggestions(title: string): Promise<RecipeSuggest
     }
     throw new Error('Failed to get recipe suggestions: Unknown error');
   }
+}
+
+export async function generateRecipeImagePrompt(recipe: {
+  title: string;
+  ingredients: Array<{ name: string }>;
+  cuisineType?: string;
+}): Promise<string> {
+  const prompt = `You are a professional food photographer and stylist. Create a detailed image prompt for a beautiful, appetizing photo of this recipe.
+  
+  Recipe: "${recipe.title}"
+  Main ingredients: ${recipe.ingredients.map(i => i.name).join(', ')}
+  ${recipe.cuisineType ? `Cuisine type: ${recipe.cuisineType}` : ''}
+
+  Respond with ONLY the image prompt - no explanations, no additional text.
+  The prompt should:
+  - Describe a professional food photography setup
+  - Include lighting details (soft, natural lighting preferred)
+  - Mention plating and garnish details
+  - Include background/setting suggestions
+  - Be specific about angle and composition
+  - Be 2-3 sentences maximum
+  
+  Example format (do not use this exact text):
+  "A rustic wooden table with soft natural light streaming from the left, showcasing a perfectly plated pasta dish with fresh herbs scattered artfully. The shallow depth of field focuses on the steam rising from the perfectly cooked noodles."`;
+
+  try {
+    console.log('Generating image prompt for recipe:', recipe.title);
+    
+    const message = await anthropic.messages.create({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 200,
+      temperature: 0.7,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    if (!message.content || message.content.length === 0) {
+      throw new Error('Empty response from Claude');
+    }
+
+    const content = message.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response format from Claude');
+    }
+
+    console.log('Generated image prompt:', content.text);
+    return content.text.trim();
+  } catch (error) {
+    console.error('Error generating image prompt:', error);
+    throw new Error('Failed to generate image prompt');
+  }
 } 

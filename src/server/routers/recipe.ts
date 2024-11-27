@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { router, publicProcedure } from '../trpc';
 import { prisma } from '../db';
 import { TRPCError } from '@trpc/server';
-import { Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getRecipeSuggestions } from '@/utils/claude';
+import { generateRecipeImage } from '@/utils/xai';
+import fetch from 'node-fetch';
 
 interface RecipeAdjustment {
   type: 'ingredient' | 'instruction';
@@ -152,14 +154,16 @@ export const recipeRouter = router({
     .input(z.object({
       recipeId: z.string(),
       startedAt: z.date(),
+      completedAt: z.date(),
       servingsCooked: z.number(),
+      notes: z.string(),
+      actualTime: z.number(),
     }))
     .mutation(async ({ input }) => {
       try {
-        // First verify recipe exists
+        // Verify recipe exists
         const recipe = await prisma.recipe.findUnique({
           where: { id: input.recipeId },
-          select: { id: true },
         });
 
         if (!recipe) {
@@ -169,24 +173,33 @@ export const recipeRouter = router({
           });
         }
 
+        console.log('Creating cooking history with input:', input);
+
         // Create cooking history record
         const session = await prisma.cookingHistory.create({
           data: {
             recipeId: input.recipeId,
             startedAt: input.startedAt,
-            actualTime: 0,
+            completedAt: input.completedAt,
+            actualTime: input.actualTime,
             servingsCooked: input.servingsCooked,
-            notes: '',
-            completedAt: new Date(0),
+            notes: input.notes,
           },
         });
 
+        console.log('Created cooking history:', session);
         return session;
       } catch (error) {
-        console.error('Error recording cooking:', error);
+        console.error('Error in recordCooking:', error);
+        if (error instanceof Error) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Database error: ${error.message}`,
+          });
+        }
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to record cooking session',
+          message: 'An unexpected error occurred',
         });
       }
     }),
@@ -254,10 +267,12 @@ export const recipeRouter = router({
     }))
     .mutation(async ({ input }) => {
       try {
+        console.log('Getting suggestions for recipe:', input.title);
         const suggestions = await getRecipeSuggestions(input.title);
+        console.log('Got suggestions:', suggestions);
         return suggestions;
       } catch (error) {
-        console.error('Error getting recipe suggestions:', error);
+        console.error('Error getting suggestions:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: error instanceof Error ? error.message : 'Failed to get recipe suggestions',
@@ -413,6 +428,92 @@ export const recipeRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to complete cooking session',
+        });
+      }
+    }),
+
+  generateImage: publicProcedure
+    .input(z.object({
+      title: z.string(),
+      ingredients: z.array(z.object({
+        name: z.string(),
+        amount: z.number(),
+        unit: z.string(),
+      })),
+      cuisineType: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        console.log('Starting image generation for recipe:', input.title);
+        const result = await generateRecipeImage(
+          input.title,
+          input.ingredients,
+          input.cuisineType
+        );
+
+        if (result.error) {
+          console.error('Error from OpenAI:', result.error);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: result.error,
+          });
+        }
+
+        if (!result.imageUrl) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'No image URL returned from OpenAI',
+          });
+        }
+
+        console.log('Got image URL from OpenAI:', result.imageUrl);
+
+        // Download and save the image
+        const imageResponse = await fetch(result.imageUrl);
+        if (!imageResponse.ok) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to download generated image',
+          });
+        }
+
+        const buffer = Buffer.from(await imageResponse.arrayBuffer());
+        const filename = `${Date.now()}-${Math.random().toString(36).substring(2)}.png`;
+        const publicDir = path.join(process.cwd(), 'public', 'uploads');
+        
+        if (!fs.existsSync(publicDir)) {
+          fs.mkdirSync(publicDir, { recursive: true });
+        }
+
+        const filePath = path.join(publicDir, filename);
+        fs.writeFileSync(filePath, buffer);
+
+        const localUrl = `/uploads/${filename}`;
+        console.log('Saved image locally:', localUrl);
+        return localUrl;
+
+      } catch (error) {
+        console.error('Error in generateImage:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to generate image',
+        });
+      }
+    }),
+
+  deleteCookingSession: publicProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      try {
+        await prisma.cookingHistory.delete({
+          where: { id: input },
+        });
+        return true;
+      } catch (error) {
+        console.error('Error deleting cooking session:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to delete cooking session',
         });
       }
     }),

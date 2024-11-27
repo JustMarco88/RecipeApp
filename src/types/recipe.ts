@@ -1,12 +1,10 @@
-export interface Ingredient {
+export interface RecipeIngredient {
   name: string;
   amount: number;
   unit: string;
 }
 
-export interface RecipeIngredient extends Ingredient {
-  checked?: boolean;
-}
+export interface Ingredient extends RecipeIngredient {}
 
 export interface Recipe {
   id: string;
