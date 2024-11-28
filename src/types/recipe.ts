@@ -22,18 +22,29 @@ export interface Recipe {
   createdAt: Date;
   updatedAt: Date;
   userId?: string | null;
+  tips?: string | null;
 }
 
 export interface CookingHistory {
   id: string;
   recipeId: string;
   startedAt: Date;
-  completedAt: Date;
-  actualTime: number;
-  servingsCooked: number;
+  completedAt: Date | null;
+  currentStep: number;
+  actualTime: number | null;
+  servingsCooked: number | null;
+  notes: string | null;
+  ingredients: string | null;
+  instructions: string | null;
   createdAt: Date;
 }
 
 export interface RecipeWithHistory extends Recipe {
   cookingHistory?: CookingHistory[];
+}
+
+export interface RecipeImprovement {
+  improvedSteps: string[];
+  summary: string;
+  tips: string[];
 } 

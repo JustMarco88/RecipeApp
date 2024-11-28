@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { type Recipe } from "@/types/recipe"
-import { type RecipeIngredient } from "@/types/recipe"
+import { type Recipe, type RecipeIngredient, type RecipeImprovement } from "@/types/recipe"
 import { trpc } from "@/utils/trpc"
-import { X, ChevronLeft, ChevronRight, Clock, Flame, GaugeCircle, TimerIcon, Plus, Minus, Play, Pause, ChevronDown, ChevronUp, Trash2, History, Pencil } from "lucide-react"
+import { X, ChevronLeft, ChevronRight, Clock, Flame, GaugeCircle, TimerIcon, Plus, Minus, Play, Pause, ChevronDown, ChevronUp, Trash2, History, Pencil, ThumbsUp, ThumbsDown, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { formatDistanceToNow } from "date-fns"
@@ -18,8 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import { RecipeForm } from "./recipe-form"
+import { cn } from "@/lib/utils"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Checkbox } from "@/components/ui/checkbox"
 
 // Quick timer presets
 const QUICK_TIMERS = [
@@ -165,6 +168,11 @@ function shouldConfirmClose(
   return (hasProgress || hasNotes) && significantTimeSpent
 }
 
+interface StepFeedback {
+  liked?: boolean
+  disliked?: boolean
+}
+
 export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element {
   const [currentStep, setCurrentStep] = useState(0)
   const [servings, setServings] = useState<number>(() => {
@@ -208,6 +216,10 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   const utils = trpc.useContext()
   const [editingStep, setEditingStep] = useState<number | null>(null)
   const [editedStepText, setEditedStepText] = useState("")
+  const [stepFeedback, setStepFeedback] = useState<Record<number, StepFeedback>>({})
+  const [showResumeDialog, setShowResumeDialog] = useState(false)
+  const [improvements, setImprovements] = useState<RecipeImprovement | null>(null)
+  const [isFinishing, setIsFinishing] = useState(false)
 
   // Query for existing session
   const { data: existingSession } = trpc.recipe.getCurrentCookingSession.useQuery({
@@ -229,13 +241,21 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   const resumeSession = trpc.recipe.resumeSession.useMutation({
     onSuccess: (session) => {
       if (session) {
-        setCurrentStep(session.currentStep)
+        setCurrentStep(session.currentStep || 0)
         setNotes(session.notes || "")
         if (session.ingredients) {
-          setIngredients(JSON.parse(session.ingredients))
+          try {
+            setIngredients(JSON.parse(session.ingredients))
+          } catch (e) {
+            console.error('Error parsing session ingredients:', e)
+          }
         }
         if (session.instructions) {
-          setInstructions(JSON.parse(session.instructions))
+          try {
+            setInstructions(JSON.parse(session.instructions))
+          } catch (e) {
+            console.error('Error parsing session instructions:', e)
+          }
         }
       }
     },
@@ -246,16 +266,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
     if (existingSession) {
       const timeSinceStart = (Date.now() - new Date(existingSession.startedAt).getTime()) / 1000 / 60
       if (timeSinceStart < 120) { // Less than 2 hours old
-        Dialog.confirm({
-          title: "Resume Cooking Session?",
-          description: `You have a cooking session from ${formatDistanceToNow(new Date(existingSession.startedAt))} ago. Would you like to resume where you left off?`,
-          confirmText: "Resume Session",
-          cancelText: "Start Fresh",
-        }).then((confirmed) => {
-          if (confirmed) {
-            resumeSession.mutate(existingSession.id)
-          }
-        })
+        setShowResumeDialog(true)
       }
     }
   }, [existingSession])
@@ -345,47 +356,109 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   }
 
   const recordCooking = trpc.recipe.recordCooking.useMutation({
-    onSuccess: () => {
-      utils.recipe.getAll.invalidate()
-      utils.recipe.getCookingHistory.invalidate(recipe.id)
-      toast({
-        title: "Success",
-        description: "Cooking session completed!",
-      })
-      onClose()
-    },
     onError: (error) => {
-      console.error('Failed to record cooking:', error)
+      console.error('Failed to record cooking:', error);
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to record cooking session",
-      })
+        title: 'Error',
+        description: 'Failed to record cooking session',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const getRecipeImprovements = trpc.recipe.getRecipeImprovements.useMutation()
+  const updateRecipe = trpc.recipe.updateRecipe.useMutation({
+    onSuccess: () => {
+      utils.recipe.getById.invalidate(recipe.id)
+      utils.recipe.getAll.invalidate()
     },
   })
 
-  const handleFinishCooking = async () => {
+  const finishCooking = async () => {
+    if (!recipe || !startTime) return;
+    
+    setIsFinishing(true);
+    const endTime = new Date();
+    const actualTime = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+    
     try {
-      const cookingData = {
+      // First, record the cooking session
+      await recordCooking.mutateAsync({
         recipeId: recipe.id,
         startedAt: startTime,
-        completedAt: new Date(),
-        servingsCooked: servings,
+        completedAt: endTime,
         notes: notes,
-        actualTime: Math.round((Date.now() - startTime.getTime()) / 1000 / 60), // minutes
-      }
+        actualTime: actualTime,
+        servingsCooked: recipe.servings
+      });
 
-      console.log('Recording cooking session with data:', cookingData)
-      await recordCooking.mutateAsync(cookingData)
+      // Check if we have any feedback to process
+      const stepFeedbackArray = Object.entries(stepFeedback)
+        .filter(([_, feedback]) => feedback.liked !== undefined || feedback.disliked !== undefined)
+        .map(([index, feedback]) => ({
+          stepIndex: parseInt(index),
+          liked: feedback.liked || false,
+          disliked: feedback.disliked || false
+        }));
+
+      const hasFeedback = stepFeedbackArray.length > 0;
+      const hasNotes = notes.trim().length > 0;
+      const hasTimeDeviation = Math.abs(actualTime - (recipe.prepTime + recipe.cookTime)) > 5;
+
+      if (hasFeedback || hasNotes || hasTimeDeviation) {
+        const result = await getRecipeImprovements.mutateAsync({
+          recipe: {
+            title: recipe.title,
+            instructions: JSON.parse(recipe.instructions),
+            feedback: stepFeedbackArray,
+            notes: notes,
+            actualTime: actualTime,
+            expectedTime: recipe.prepTime + recipe.cookTime
+          }
+        });
+
+        if ('improvedSteps' in result) {
+          // Create a new array with original steps
+          const originalSteps = JSON.parse(recipe.instructions) as string[];
+          const updatedSteps = [...originalSteps];
+
+          // Replace only the steps that were improved
+          result.improvedSteps.forEach(improvedStep => {
+            const match = improvedStep.match(/^(\d+)\.\s*(.*)/);
+            if (match) {
+              const stepIndex = parseInt(match[1]) - 1;
+              const stepContent = match[2];
+              if (stepIndex >= 0 && stepIndex < updatedSteps.length) {
+                updatedSteps[stepIndex] = stepContent;
+              }
+            }
+          });
+
+          setImprovements({
+            improvedSteps: updatedSteps,
+            summary: result.summary,
+            tips: result.tips
+          });
+        }
+      } else {
+        // If no feedback or significant changes, just close
+        toast({
+          title: "Cooking Session Completed",
+          description: "Your cooking session has been recorded successfully.",
+        });
+        onClose();
+      }
     } catch (error) {
-      console.error('Error finishing cooking session:', error)
+      console.error('Error finishing cooking session:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to save cooking session",
-      })
+        description: "Failed to complete cooking session",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFinishing(false);
     }
-  }
+  };
 
   const toggleIngredient = (index: number) => {
     setIngredients(prev =>
@@ -469,311 +542,569 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
     }
   }
 
+  const handleStepFeedback = (index: number, type: 'like' | 'dislike') => {
+    setStepFeedback(prev => ({
+      ...prev,
+      [index]: {
+        liked: type === 'like' ? !prev[index]?.liked : false,
+        disliked: type === 'dislike' ? !prev[index]?.disliked : false,
+      }
+    }))
+  }
+
   return (
-    <div className="fixed inset-0 bg-background z-50 overflow-auto">
-      <div className="container mx-auto p-4 max-w-6xl">
-        {/* Enhanced Header */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-semibold">{recipe.title}</h2>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-70 hover:opacity-100"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Edit Recipe</DialogTitle>
-                    <DialogDescription>
-                      Modify your recipe details
-                    </DialogDescription>
-                  </DialogHeader>
-                  <RecipeForm recipeId={recipe.id} />
-                </DialogContent>
-              </Dialog>
-            </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                <span>Prep: {recipe.prepTime}min</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Flame className="h-4 w-4" />
-                <span>Cook: {recipe.cookTime}min</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <GaugeCircle className="h-4 w-4" />
-                <span>Difficulty: {recipe.difficulty}</span>
-              </div>
-              <div className="relative">
-                <CookingHistoryList recipeId={recipe.id} />
-              </div>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={handleClose}>
-            <X className="h-6 w-6" />
-          </Button>
-        </div>
-
-        {/* Main Content */}
-        <div className="grid lg:grid-cols-[350px,1fr] gap-8">
-          {/* Left Column */}
-          <div className="space-y-6">
-            {/* Ingredients */}
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Ingredients</h2>
-              <ul className="space-y-3">
-                {ingredients.map((ing, index) => (
-                  <li key={index} className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={ing.checked}
-                      onChange={() => toggleIngredient(index)}
-                      className="h-5 w-5"
-                    />
-                    <span className={ing.checked ? "line-through text-muted-foreground" : ""}>
-                      {ing.amount} {ing.unit} {ing.name}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Notes */}
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-2">Cooking Notes</h2>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add notes about your cooking experience..."
-                className="min-h-[100px]"
-              />
-            </div>
-
-            {/* Timers */}
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Timers</h2>
-              <div className="space-y-4">
-                {/* Quick Timer Buttons */}
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {QUICK_TIMERS.map((timer) => (
+    <>
+      <div className="fixed inset-0 bg-background z-50 overflow-auto">
+        <div className="container mx-auto p-4 max-w-6xl">
+          {/* Enhanced Header */}
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-semibold">{recipe.title}</h2>
+                <Dialog>
+                  <DialogTrigger asChild>
                     <Button
-                      key={timer.duration}
-                      variant="outline"
-                      onClick={() => addQuickTimer(timer.duration)}
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 opacity-70 hover:opacity-100"
                     >
-                      {timer.duration} min
+                      <Pencil className="h-4 w-4" />
                     </Button>
-                  ))}
+                  </DialogTrigger>
+                  <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Edit Recipe</DialogTitle>
+                      <DialogDescription>
+                        Modify your recipe details
+                      </DialogDescription>
+                    </DialogHeader>
+                    <RecipeForm recipeId={recipe.id} />
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span>Prep: {recipe.prepTime}min</span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4" />
+                  <span>Cook: {recipe.cookTime}min</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <GaugeCircle className="h-4 w-4" />
+                  <span>Difficulty: {recipe.difficulty}</span>
+                </div>
+                <div className="relative">
+                  <CookingHistoryList recipeId={recipe.id} />
+                </div>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleClose}>
+              <X className="h-6 w-6" />
+            </Button>
+          </div>
 
-                {/* Custom Timer Input */}
-                <div className="grid grid-cols-[1fr,auto] gap-2">
-                  <div className="space-y-2">
-                    <Input
-                      placeholder="Timer name"
-                      value={newTimerName}
-                      onChange={(e) => setNewTimerName(e.target.value)}
-                    />
-                    <div className="flex items-center gap-2">
+          {/* Main Content */}
+          <div className="grid lg:grid-cols-[350px,1fr] gap-8">
+            {/* Left Column */}
+            <div className="space-y-6">
+              {/* Ingredients */}
+              <div className="bg-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">Ingredients</h2>
+                <ul className="space-y-3">
+                  {ingredients.map((ing, index) => (
+                    <li key={index} className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={ing.checked}
+                        onChange={() => toggleIngredient(index)}
+                        className="h-5 w-5"
+                      />
+                      <span className={ing.checked ? "line-through text-muted-foreground" : ""}>
+                        {ing.amount} {ing.unit} {ing.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Notes */}
+              <div className="bg-card rounded-lg p-6">
+                <h2 className="text-lg font-semibold mb-2">Cooking Notes</h2>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add notes about your cooking experience..."
+                  className="min-h-[100px]"
+                />
+              </div>
+
+              {/* Timers */}
+              <div className="bg-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">Timers</h2>
+                <div className="space-y-4">
+                  {/* Quick Timer Buttons */}
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {QUICK_TIMERS.map((timer) => (
                       <Button
+                        key={timer.duration}
                         variant="outline"
-                        size="icon"
-                        onClick={() => setNewTimerDuration(prev => Math.max(1, prev - 1))}
-                        disabled={newTimerDuration <= 1}
+                        onClick={() => addQuickTimer(timer.duration)}
                       >
-                        <Minus className="h-4 w-4" />
+                        {timer.duration} min
                       </Button>
-                      <div className="flex-1 text-center">
-                        <span className="text-2xl font-semibold">
-                          {newTimerDuration}
-                        </span>
-                        <span className="text-sm text-muted-foreground ml-2">
-                          minutes
-                        </span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setNewTimerDuration(prev => prev + 1)}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    ))}
                   </div>
-                  <Button onClick={addTimer} className="h-full">
-                    <TimerIcon className="h-4 w-4 mr-2" />
-                    Add
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {timers.map((timer) => (
-                    <div
-                      key={timer.id}
-                      className="flex items-center justify-between bg-muted p-3 rounded-lg"
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-medium">{timer.name}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {formatTime(timer.timeLeft)}
-                        </span>
-                      </div>
+
+                  {/* Custom Timer Input */}
+                  <div className="grid grid-cols-[1fr,auto] gap-2">
+                    <div className="space-y-2">
+                      <Input
+                        placeholder="Timer name"
+                        value={newTimerName}
+                        onChange={(e) => setNewTimerName(e.target.value)}
+                      />
                       <div className="flex items-center gap-2">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="icon"
-                          onClick={() => toggleTimer(timer.id)}
+                          onClick={() => setNewTimerDuration(prev => Math.max(1, prev - 1))}
+                          disabled={newTimerDuration <= 1}
                         >
-                          {timer.isRunning ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
+                          <Minus className="h-4 w-4" />
                         </Button>
+                        <div className="flex-1 text-center">
+                          <span className="text-2xl font-semibold">
+                            {newTimerDuration}
+                          </span>
+                          <span className="text-sm text-muted-foreground ml-2">
+                            minutes
+                          </span>
+                        </div>
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="icon"
-                          onClick={() => removeTimer(timer.id)}
+                          onClick={() => setNewTimerDuration(prev => prev + 1)}
                         >
-                          <X className="h-4 w-4" />
+                          <Plus className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
+                    <Button onClick={addTimer} className="h-full">
+                      <TimerIcon className="h-4 w-4 mr-2" />
+                      Add
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {timers.map((timer) => (
+                      <div
+                        key={timer.id}
+                        className="flex items-center justify-between bg-muted p-3 rounded-lg"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{timer.name}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {formatTime(timer.timeLeft)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => toggleTimer(timer.id)}
+                          >
+                            {timer.isRunning ? (
+                              <Pause className="h-4 w-4" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeTimer(timer.id)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pro Tips Section - if recipe has stored tips */}
+              {recipe.tips && (
+                <div className="bg-card rounded-lg p-6">
+                  <h2 className="text-lg font-semibold mb-4">Pro Tips</h2>
+                  <div className="space-y-3">
+                    {JSON.parse(recipe.tips || '[]').map((tip: string, index: number) => (
+                      <div key={index} className="flex gap-3 items-start">
+                        <div className="flex-none pt-1">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-sm">
+                            {index + 1}
+                          </span>
+                        </div>
+                        <p className="flex-1 text-muted-foreground">{tip}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column - Instructions */}
+            <div className="space-y-6">
+              <div className="bg-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">Instructions</h2>
+                <div className="space-y-8">
+                  {instructions.map((step, index) => (
+                    <div
+                      key={index}
+                      className={`space-y-2 ${
+                        index === currentStep ? "bg-primary/10" : "hover:bg-muted/50"
+                      } rounded transition-colors p-4`}
+                      onDoubleClick={() => handleStepEdit(index)}
+                    >
+                      <div className="flex items-start gap-4">
+                        <span className="font-mono text-lg font-bold">
+                          {index + 1}
+                        </span>
+                        {editingStep === index ? (
+                          <div className="flex-1 space-y-2">
+                            <Textarea
+                              value={editedStepText}
+                              onChange={(e) => setEditedStepText(e.target.value)}
+                              className="min-h-[100px]"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && e.metaKey) {
+                                  handleStepSave()
+                                } else if (e.key === 'Escape') {
+                                  setEditingStep(null)
+                                }
+                              }}
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setEditingStep(null)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={handleStepSave}
+                              >
+                                Save
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between gap-4">
+                              <p className="flex-1">{step.text}</p>
+                              <div className="flex items-center gap-2 ml-4">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={cn(
+                                    "h-8 w-8 transition-colors",
+                                    stepFeedback[index]?.liked && "text-green-500"
+                                  )}
+                                  onClick={() => handleStepFeedback(index, 'like')}
+                                >
+                                  <ThumbsUp className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={cn(
+                                    "h-8 w-8 transition-colors",
+                                    stepFeedback[index]?.disliked && "text-red-500"
+                                  )}
+                                  onClick={() => handleStepFeedback(index, 'dislike')}
+                                >
+                                  <ThumbsDown className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ))}
+                </div>
+                <div className="flex justify-between mt-8">
+                  <Button
+                    variant="outline"
+                    onClick={() => setCurrentStep((prev) => Math.max(0, prev - 1))}
+                    disabled={currentStep === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-2" />
+                    Previous
+                  </Button>
+                  {currentStep === instructions.length - 1 ? (
+                    <Button onClick={finishCooking}>
+                      Finish Cooking
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() =>
+                        setCurrentStep((prev) =>
+                          Math.min(instructions.length - 1, prev + 1)
+                        )
+                      }
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right Column - Instructions */}
-          <div className="space-y-6">
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Instructions</h2>
-              <div className="space-y-8">
-                {instructions.map((step, index) => (
-                  <div
-                    key={index}
-                    className={`space-y-2 ${
-                      index === currentStep ? "bg-primary/10" : "hover:bg-muted/50"
-                    } rounded transition-colors p-4`}
-                    onDoubleClick={() => handleStepEdit(index)}
-                  >
-                    <div className="flex items-start gap-4">
-                      <span className="font-mono text-lg font-bold">
-                        {index + 1}
-                      </span>
-                      {editingStep === index ? (
-                        <div className="flex-1 space-y-2">
-                          <Textarea
-                            value={editedStepText}
-                            onChange={(e) => setEditedStepText(e.target.value)}
-                            className="min-h-[100px]"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && e.metaKey) {
-                                handleStepSave()
-                              } else if (e.key === 'Escape') {
-                                setEditingStep(null)
-                              }
-                            }}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setEditingStep(null)}
+          <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Resume Previous Session?</DialogTitle>
+                <DialogDescription>
+                  {existingSession && `You have an unfinished cooking session from ${formatDistanceToNow(new Date(existingSession.startedAt))} ago.`}
+                  Would you like to resume where you left off?
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end gap-3 mt-4">
+                <Button variant="outline" onClick={() => setShowResumeDialog(false)}>
+                  Start New
+                </Button>
+                <Button onClick={() => {
+                  if (existingSession) {
+                    resumeSession.mutate(existingSession.id);
+                    setShowResumeDialog(false);
+                  }
+                }}>
+                  Resume
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={!!improvements} onOpenChange={() => setImprovements(null)}>
+            <DialogContent className="max-w-4xl max-h-[90vh]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="text-2xl">✨</span>
+                  Recipe Improvements Available
+                </DialogTitle>
+                <DialogDescription>
+                  Based on your cooking experience, we've analyzed your feedback and timing to enhance this recipe.
+                  {notes && (
+                    <div className="mt-2 p-3 bg-muted rounded-md">
+                      <span className="font-medium">Your Notes:</span>
+                      <p className="mt-1 italic text-muted-foreground">"{notes}"</p>
+                    </div>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+
+              <ScrollArea className="max-h-[60vh] pr-4">
+                {improvements && (
+                  <div className="space-y-6">
+                    {/* Summary Card */}
+                    <div className="bg-muted/30 rounded-lg p-6 border">
+                      <h3 className="text-lg font-semibold mb-3">What's Changing</h3>
+                      <p className="text-muted-foreground leading-relaxed">{improvements.summary}</p>
+                    </div>
+
+                    {/* Instructions Comparison with Checkboxes */}
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold flex items-center gap-2">
+                        Select Changes to Apply
+                        <span className="text-xs bg-green-500/10 text-green-600 dark:text-green-400 px-2 py-1 rounded-full">
+                          Review Each Step
+                        </span>
+                      </h3>
+                      <div className="divide-y divide-border/50">
+                        {improvements.improvedSteps.map((step, index) => {
+                          const originalStep = JSON.parse(recipe.instructions)[index];
+                          const isChanged = step !== originalStep;
+                          const feedback = stepFeedback[index];
+                          
+                          if (!isChanged) return null;
+
+                          return (
+                            <div key={index} className="py-4">
+                              <div className="flex gap-4">
+                                <div className="flex-none pt-1">
+                                  <Checkbox 
+                                    id={`step-${index}`}
+                                    defaultChecked
+                                    onCheckedChange={(checked: boolean) => {
+                                      const updatedSteps = [...improvements.improvedSteps];
+                                      updatedSteps[index] = checked ? step : originalStep;
+                                      setImprovements({
+                                        ...improvements,
+                                        improvedSteps: updatedSteps
+                                      });
+                                    }}
+                                  />
+                                </div>
+                                <div className="flex-1 space-y-3">
+                                  <div className="space-y-1.5">
+                                    <label
+                                      htmlFor={`step-${index}`}
+                                      className="text-base font-medium text-green-600 dark:text-green-400"
+                                    >
+                                      New Step {index + 1}:
+                                    </label>
+                                    <p>{step}</p>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <span className="text-sm text-muted-foreground">Original:</span>
+                                    <p className="text-sm text-muted-foreground">{originalStep}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Pro Tips with Checkboxes */}
+                    <div className="bg-muted/30 rounded-lg p-6 border">
+                      <h3 className="text-lg font-semibold mb-4">Select Pro Tips to Save</h3>
+                      <div className="space-y-3">
+                        {improvements.tips.map((tip, index) => (
+                          <div key={index} className="flex gap-3 items-start">
+                            <div className="flex-none pt-1">
+                              <Checkbox 
+                                id={`tip-${index}`}
+                                defaultChecked
+                                onCheckedChange={(checked: boolean) => {
+                                  const updatedTips = [...improvements.tips];
+                                  if (!checked) {
+                                    updatedTips.splice(index, 1);
+                                  }
+                                  setImprovements({
+                                    ...improvements,
+                                    tips: updatedTips
+                                  });
+                                }}
+                              />
+                            </div>
+                            <label
+                              htmlFor={`tip-${index}`}
+                              className="flex-1 text-muted-foreground"
                             >
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={handleStepSave}
-                            >
-                              Save
-                            </Button>
+                              {tip}
+                            </label>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="flex-1">{step.text}</p>
-                      )}
+                        ))}
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-              <div className="flex justify-between mt-8">
+                )}
+              </ScrollArea>
+
+              <DialogFooter className="flex items-center justify-between gap-4 mt-6 pt-6 border-t">
+                <div className="flex-1 text-sm text-muted-foreground">
+                  Select which improvements you'd like to apply to your recipe.
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setImprovements(null);
+                      onClose();
+                    }}
+                  >
+                    Discard All
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (improvements && recipe) {
+                        await updateRecipe.mutateAsync({
+                          id: recipe.id,
+                          instructions: JSON.stringify(improvements.improvedSteps),
+                          tips: JSON.stringify(improvements.tips)
+                        });
+                        toast({
+                          title: "Recipe Updated Successfully",
+                          description: "Your recipe has been enhanced with the selected improvements",
+                        });
+                        setImprovements(null);
+                        onClose();
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <span>Apply Selected Changes</span>
+                    <span className="text-lg">✨</span>
+                  </Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Exit Cooking Mode?</DialogTitle>
+                <DialogDescription>
+                  You've been cooking for {Math.floor((Date.now() - startTime.getTime()) / 1000 / 60)} minutes
+                  {currentStep > 0 && ` and reached step ${currentStep + 1} of ${instructions.length}`}
+                  {notes.trim().length > 0 && ` with notes added`}.
+                  Would you like to save your progress before leaving?
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end gap-3 mt-4">
                 <Button
                   variant="outline"
-                  onClick={() => setCurrentStep((prev) => Math.max(0, prev - 1))}
-                  disabled={currentStep === 0}
+                  onClick={() => setShowCloseConfirm(false)}
                 >
-                  <ChevronLeft className="h-4 w-4 mr-2" />
-                  Previous
+                  Continue Cooking
                 </Button>
-                {currentStep === instructions.length - 1 ? (
-                  <Button onClick={handleFinishCooking}>
-                    Finish Cooking
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() =>
-                      setCurrentStep((prev) =>
-                        Math.min(instructions.length - 1, prev + 1)
-                      )
-                    }
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4 ml-2" />
-                  </Button>
-                )}
+                <Button
+                  variant="secondary"
+                  onClick={handleSaveAndExit}
+                >
+                  Save & Exit
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={onClose}
+                >
+                  Exit Without Saving
+                </Button>
               </div>
-            </div>
-          </div>
+            </DialogContent>
+          </Dialog>
         </div>
-
-        <Dialog open={showCloseConfirm} onOpenChange={(open) => !open && setShowCloseConfirm(false)}>
-          <DialogContent onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              onClose()
-            }
-          }}>
-            <DialogHeader>
-              <DialogTitle>Exit Cooking Mode?</DialogTitle>
-              <DialogDescription>
-                You've been cooking for {Math.floor((Date.now() - startTime.getTime()) / 1000 / 60)} minutes
-                {currentStep > 0 && ` and reached step ${currentStep + 1} of ${instructions.length}`}
-                {notes.trim().length > 0 && ` with notes added`}.
-                Would you like to save your progress before leaving?
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex justify-end gap-3 mt-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowCloseConfirm(false)}
-              >
-                Continue Cooking
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={handleSaveAndExit}
-              >
-                Save & Exit
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={onClose}
-              >
-                Exit Without Saving
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
-    </div>
+
+      <div className="flex justify-between items-center p-4 border-t bg-background">
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button 
+          onClick={finishCooking} 
+          disabled={isFinishing}
+          className="min-w-[120px]"
+        >
+          {isFinishing ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Finishing...
+            </>
+          ) : (
+            'Finish Cooking'
+          )}
+        </Button>
+      </div>
+    </>
   )
 } 

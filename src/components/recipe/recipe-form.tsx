@@ -102,16 +102,24 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
 
   const getSuggestions = trpc.recipe.getSuggestions.useMutation({
     onSuccess: (suggestions) => {
-      setCurrentSuggestions(suggestions)
-      setShowSuggestionDialog(true)
+      if ('ingredients' in suggestions) {
+        setCurrentSuggestions(suggestions)
+        setShowSuggestionDialog(true)
+      } else {
+        toast({
+          title: "Error",
+          description: "Invalid suggestion format received",
+          variant: "destructive",
+        })
+      }
       setIsGettingSuggestions(false)
     },
     onError: (error) => {
       console.error('Error getting suggestions:', error)
       toast({
-        variant: "destructive",
         title: "Error",
-        description: "Failed to get recipe suggestions. Please try again or enter details manually.",
+        description: "Failed to get recipe suggestions",
+        variant: "destructive",
       })
       setIsGettingSuggestions(false)
     },

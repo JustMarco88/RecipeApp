@@ -8,6 +8,7 @@ import * as path from 'path';
 import { getRecipeSuggestions } from '@/utils/claude';
 import { generateRecipeImage } from '@/utils/xai';
 import fetch from 'node-fetch';
+import { type RecipeImprovement } from "@/types/recipe"
 
 interface RecipeAdjustment {
   type: 'ingredient' | 'instruction';
@@ -266,18 +267,37 @@ export const recipeRouter = router({
       title: z.string(),
     }))
     .mutation(async ({ input }) => {
-      try {
-        console.log('Getting suggestions for recipe:', input.title);
-        const suggestions = await getRecipeSuggestions(input.title);
-        console.log('Got suggestions:', suggestions);
-        return suggestions;
-      } catch (error) {
-        console.error('Error getting suggestions:', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get recipe suggestions',
-        });
+      const prompt = `You are a professional chef and recipe expert. I need you to provide recipe details in JSON format.
+      For the recipe title "${input.title}", respond with ONLY a JSON object - no markdown, no explanations, no additional text.
+      
+      The response must be a valid JSON object exactly matching this interface:
+      {
+        "ingredients": [
+          {
+            "name": "string",
+            "amount": number,
+            "unit": "string"
+          }
+        ],
+        "instructions": ["string"],
+        "prepTime": number,
+        "cookTime": number,
+        "difficulty": "Easy" | "Medium" | "Hard",
+        "cuisineType": "string",
+        "tags": ["string"]
       }
+      
+      Requirements:
+      - Response must be a single, valid JSON object
+      - No text before or after the JSON
+      - All numbers must be numeric (not strings)
+      - Ingredients must have precise measurements
+      - Instructions should be clear, step-by-step array items
+      - Times must be numbers in minutes
+      - Difficulty must be exactly "Easy", "Medium", or "Hard"
+      - Tags should be an array of relevant keywords`;
+
+      return getRecipeSuggestions(prompt, false);
     }),
 
   saveCookingNotes: publicProcedure
@@ -389,6 +409,13 @@ export const recipeRouter = router({
           },
           orderBy: {
             startedAt: 'desc',
+          },
+          include: {
+            recipe: {
+              select: {
+                title: true,
+              },
+            },
           },
         });
 
@@ -597,6 +624,83 @@ export const recipeRouter = router({
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to update recipe step',
+        });
+      }
+    }),
+
+  getRecipeImprovements: publicProcedure
+    .input(z.object({
+      recipe: z.object({
+        title: z.string(),
+        instructions: z.array(z.string()),
+        feedback: z.array(z.object({
+          stepIndex: z.number(),
+          liked: z.boolean(),
+        })),
+        notes: z.string(),
+        actualTime: z.number(),
+        expectedTime: z.number()
+      }),
+    }))
+    .mutation(async ({ input }) => {
+      const prompt = `As an expert chef, please suggest improvements for this recipe based on user feedback:
+
+Recipe: ${input.recipe.title}
+
+Current Instructions:
+${input.recipe.instructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+User Feedback:
+${input.recipe.instructions.map((step, i) => {
+  const feedback = input.recipe.feedback.find(f => f.stepIndex === i);
+  return `Step ${i + 1} was ${feedback?.liked ? 'liked' : 'disliked'}: "${step}"`;
+}).join('\n')}
+
+Cooking Notes: ${input.recipe.notes}
+Actual Cooking Time: ${input.recipe.actualTime} minutes (Expected: ${input.recipe.expectedTime} minutes)
+
+Please suggest specific improvements to make this recipe better, focusing on:
+1. Steps that received negative feedback
+2. Clarifying instructions with precise measurements (always use metric units: grams, milliliters, centimeters)
+3. Adding helpful tips about temperature (always in Celsius), timing, and technique
+4. Improving technique with specific details (e.g., exact knife cuts in mm/cm, pan temperature)
+5. Enhancing flavors with precise seasoning measurements
+6. Adding visual or sensory cues for doneness
+
+Format your response as a JSON object with these fields:
+- improvedSteps: array of strings with improved instructions (include metric measurements)
+- summary: brief explanation of main improvements
+- tips: array of strings with additional cooking tips (include metric measurements and temperatures)
+
+Example tip format:
+- "For perfectly diced onions, cut into 5mm cubes"
+- "Heat the pan to 180°C (medium-high heat) before adding oil"
+- "Season with 4g salt per 500g of vegetables"
+
+IMPORTANT: Ensure your response is valid JSON and contains all required fields. Always use metric measurements and Celsius temperatures.`;
+
+      return getRecipeSuggestions(prompt, true);
+    }),
+
+  updateRecipe: publicProcedure
+    .input(z.object({
+      id: z.string(),
+      instructions: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        return await prisma.recipe.update({
+          where: { id: input.id },
+          data: {
+            instructions: input.instructions,
+            updatedAt: new Date(),
+          },
+        });
+      } catch (error) {
+        console.error('Error updating recipe:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to update recipe',
         });
       }
     }),
