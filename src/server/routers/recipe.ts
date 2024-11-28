@@ -291,11 +291,32 @@ export const recipeRouter = router({
       - Response must be a single, valid JSON object
       - No text before or after the JSON
       - All numbers must be numeric (not strings)
-      - Ingredients must have precise measurements
-      - Instructions should be clear, step-by-step array items
+      - All measurements MUST be in metric units:
+        * Use grams (g) for solid ingredients
+        * Use milliliters (ml) for liquids
+        * Use centimeters (cm) or millimeters (mm) for dimensions
+        * Use Celsius (°C) for temperatures
+      - Ingredients must have precise measurements (e.g., "200g flour" not "1 cup flour")
+      - Instructions should be clear, step-by-step array items with:
+        * Exact temperatures (e.g., "Preheat oven to 180°C")
+        * Precise timings (e.g., "Knead for 8 minutes")
+        * Specific dimensions (e.g., "Cut into 2cm cubes")
+        * Visual/sensory cues for doneness
       - Times must be numbers in minutes
       - Difficulty must be exactly "Easy", "Medium", or "Hard"
-      - Tags should be an array of relevant keywords`;
+      - Tags should be an array of relevant keywords
+
+      Example ingredient format:
+      {
+        "name": "all-purpose flour",
+        "amount": 250,
+        "unit": "g"
+      }
+
+      Example instruction format:
+      "Heat oil in a pan to 180°C (medium-high heat), add 100g diced onions (1cm cubes) and cook for 5 minutes until translucent"
+
+      IMPORTANT: Always use metric measurements and Celsius temperatures. Be specific and precise with all measurements.`;
 
       return getRecipeSuggestions(prompt, false);
     }),
@@ -429,32 +450,64 @@ export const recipeRouter = router({
       }
     }),
 
+  getActiveSessions: publicProcedure
+    .query(async () => {
+      try {
+        // Get all active (incomplete) cooking sessions
+        const sessions = await prisma.cookingHistory.findMany({
+          where: {
+            completedAt: null,
+          },
+          orderBy: {
+            startedAt: 'desc',
+          },
+          include: {
+            recipe: true,
+          },
+        });
+
+        return sessions;
+      } catch (error) {
+        console.error('Error getting active sessions:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to get active cooking sessions',
+        });
+      }
+    }),
+
   finishSession: publicProcedure
     .input(z.object({
-      sessionId: z.string(),
+      recipeId: z.string(),
+      startedAt: z.date(),
+      completedAt: z.date(),
+      notes: z.string(),
       actualTime: z.number(),
       servingsCooked: z.number(),
     }))
     .mutation(async ({ input }) => {
       try {
-        const { sessionId, actualTime, servingsCooked } = input;
-        
-        // Complete the session
-        const updatedSession = await prisma.cookingHistory.update({
-          where: { id: sessionId },
+        // Update the session
+        await prisma.cookingHistory.updateMany({
+          where: {
+            recipeId: input.recipeId,
+            startedAt: input.startedAt,
+            completedAt: null,
+          },
           data: {
-            completedAt: new Date(),
-            actualTime,
-            servingsCooked,
+            completedAt: input.completedAt,
+            notes: input.notes,
+            actualTime: input.actualTime,
+            servingsCooked: input.servingsCooked,
           },
         });
 
-        return updatedSession;
+        return true;
       } catch (error) {
         console.error('Error finishing session:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to complete cooking session',
+          message: 'Failed to finish cooking session',
         });
       }
     }),
@@ -564,20 +617,19 @@ export const recipeRouter = router({
           },
           data: {
             completedAt: new Date(),
-            notes: "Session abandoned",
-          },
+            notes: input.notes ? `${input.notes} (Session abandoned)` : 'Session abandoned'
+          }
         });
 
-        // Create new session
+        // Then create the new session
         return await prisma.cookingHistory.create({
           data: {
             recipeId: input.recipeId,
-            startedAt: input.startTime,
             currentStep: input.currentStep,
             notes: input.notes,
             ingredients: input.ingredients,
             instructions: input.instructions,
-            completedAt: null,
+            startedAt: input.startTime,
           },
         });
       } catch (error) {

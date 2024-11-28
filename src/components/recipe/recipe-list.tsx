@@ -20,7 +20,7 @@ import {
 import { RecipeForm } from "./recipe-form"
 import { CookingView } from "./cooking-view"
 import { useToast } from "@/hooks/use-toast"
-import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle } from "lucide-react"
+import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle, ChevronRight } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { type Recipe, type CookingHistory, type RecipeWithHistory } from "@/types/recipe"
 
@@ -77,14 +77,19 @@ const sortOptions: SortOption[] = [
   },
 ]
 
+interface ActiveSession extends CookingHistory {
+  recipe: Recipe;
+}
+
 export function RecipeList() {
   const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery(undefined, {
     refetchOnWindowFocus: true,
   })
+  const { data: activeSessions } = trpc.recipe.getActiveSessions.useQuery()
   const { toast } = useToast()
   const utils = trpc.useContext()
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
-  const [cookingViewRecipe, setCookingViewRecipe] = useState<Recipe | null>(null)
+  const [cookingViewRecipe, setCookingViewRecipe] = useState<{recipe: Recipe, skipResumeDialog?: boolean} | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
   const [sortBy, setSortBy] = useState<string>("newest")
@@ -170,7 +175,8 @@ export function RecipeList() {
   if (cookingViewRecipe) {
     return (
       <CookingView
-        recipe={cookingViewRecipe}
+        recipe={cookingViewRecipe.recipe}
+        skipResumeDialog={cookingViewRecipe.skipResumeDialog}
         onClose={() => {
           setCookingViewRecipe(null)
           utils.recipe.getAll.invalidate()
@@ -201,6 +207,45 @@ export function RecipeList() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Active Cooking Sessions */}
+      {activeSessions && activeSessions.length > 0 && (
+        <div className="bg-card rounded-lg p-4 border">
+          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <ChefHat className="h-5 w-5" />
+            Active Cooking Sessions
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {activeSessions.map((session: ActiveSession) => (
+              <div 
+                key={session.id}
+                className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group cursor-pointer"
+                onClick={() => setCookingViewRecipe({ recipe: session.recipe, skipResumeDialog: true })}
+              >
+                <div className="flex-1">
+                  <h4 className="font-medium">{session.recipe.title}</h4>
+                  <div className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Clock className="h-3 w-3" />
+                    <span>Started {formatDistanceToNow(new Date(session.startedAt))} ago</span>
+                  </div>
+                  {session.currentStep !== undefined && (
+                    <div className="text-sm text-muted-foreground mt-1">
+                      Step {session.currentStep + 1} of {JSON.parse(session.recipe.instructions).length}
+                    </div>
+                  )}
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-4 items-center">
         <div className="relative flex-1">
@@ -248,7 +293,7 @@ export function RecipeList() {
               recipe={recipe}
               onEdit={() => setSelectedRecipe(recipe.id)}
               onDelete={() => handleDelete(recipe)}
-              onCook={() => setCookingViewRecipe(recipe)}
+              onCook={() => setCookingViewRecipe({ recipe })}
             />
           ))}
         </div>
@@ -352,12 +397,10 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook }: RecipeCardProps) {
         <div className="text-sm text-muted-foreground space-y-1">
           <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
           <p>Difficulty: {recipe.difficulty}</p>
-          {lastCooked && (
-            <div className="flex items-center gap-2 text-xs">
+          {lastCooked?.completedAt && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
               <History className="h-3 w-3" />
-              <span>
-                Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
-              </span>
+              <span>Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago</span>
             </div>
           )}
         </div>

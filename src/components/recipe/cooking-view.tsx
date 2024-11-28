@@ -43,6 +43,7 @@ interface Timer {
 interface CookingViewProps {
   recipe: Recipe
   onClose: () => void
+  skipResumeDialog?: boolean
 }
 
 function CookingHistoryList({ recipeId }: { recipeId: string }) {
@@ -92,7 +93,7 @@ function CookingHistoryList({ recipeId }: { recipeId: string }) {
               <div className="flex-1">
                 <div className="flex items-baseline justify-between">
                   <p className="text-muted-foreground">
-                    {formatDistanceToNow(new Date(session.completedAt))} ago
+                    {session.completedAt && formatDistanceToNow(new Date(session.completedAt))} ago
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {session.actualTime} min
@@ -165,7 +166,7 @@ function shouldConfirmClose(
   const hasNotes = notes.trim().length > 0
   const significantTimeSpent = timeSpentMinutes >= 5
 
-  return (hasProgress || hasNotes) && significantTimeSpent
+  return hasNotes || (hasProgress && significantTimeSpent)
 }
 
 interface StepFeedback {
@@ -173,7 +174,12 @@ interface StepFeedback {
   disliked?: boolean
 }
 
-export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element {
+export function CookingView({ recipe, onClose, skipResumeDialog = false }: CookingViewProps): JSX.Element {
+  // Query for existing session first
+  const { data: existingSession } = trpc.recipe.getCurrentCookingSession.useQuery({
+    recipeId: recipe.id
+  })
+
   const [currentStep, setCurrentStep] = useState(0)
   const [servings, setServings] = useState<number>(() => {
     try {
@@ -206,7 +212,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
       return []
     }
   })
-  const [startTime] = useState<Date>(new Date())
+  const [startTime, setStartTime] = useState(new Date())
   const [timers, setTimers] = useState<Timer[]>([])
   const [newTimerName, setNewTimerName] = useState("")
   const [newTimerDuration, setNewTimerDuration] = useState(5)
@@ -221,10 +227,12 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   const [improvements, setImprovements] = useState<RecipeImprovement | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
 
-  // Query for existing session
-  const { data: existingSession } = trpc.recipe.getCurrentCookingSession.useQuery({
-    recipeId: recipe.id
-  })
+  // Update startTime when existingSession is loaded
+  useEffect(() => {
+    if (existingSession) {
+      setStartTime(new Date(existingSession.startedAt))
+    }
+  }, [existingSession])
 
   // Save session mutation
   const saveSession = trpc.recipe.saveSession.useMutation({
@@ -243,6 +251,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
       if (session) {
         setCurrentStep(session.currentStep || 0)
         setNotes(session.notes || "")
+        setStartTime(new Date(session.startedAt))
         if (session.ingredients) {
           try {
             setIngredients(JSON.parse(session.ingredients))
@@ -263,13 +272,16 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
 
   // Check for existing session on mount
   useEffect(() => {
-    if (existingSession) {
+    if (existingSession && !skipResumeDialog) {
       const timeSinceStart = (Date.now() - new Date(existingSession.startedAt).getTime()) / 1000 / 60
       if (timeSinceStart < 120) { // Less than 2 hours old
         setShowResumeDialog(true)
       }
+    } else if (existingSession && skipResumeDialog) {
+      // Automatically resume the session if skipResumeDialog is true
+      resumeSession.mutate(existingSession.id)
     }
-  }, [existingSession])
+  }, [existingSession, skipResumeDialog])
 
   const handleSaveAndExit = async () => {
     try {
@@ -552,6 +564,33 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
     }))
   }
 
+  // Add keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle navigation when not editing
+      if (editingStep !== null) return;
+      
+      // Prevent handling if user is typing in an input or textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+          e.preventDefault();
+          setCurrentStep(prev => Math.min(instructions.length - 1, prev + 1));
+          break;
+        case 'ArrowLeft':
+        case 'ArrowUp':
+          e.preventDefault();
+          setCurrentStep(prev => Math.max(0, prev - 1));
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [instructions.length, editingStep]);
+
   return (
     <>
       <div className="fixed inset-0 bg-background z-50 overflow-auto">
@@ -612,32 +651,48 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
               {/* Ingredients */}
               <div className="bg-card rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-4">Ingredients</h2>
-                <ul className="space-y-3">
+                <div className="space-y-1">
                   {ingredients.map((ing, index) => (
-                    <li key={index} className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={ing.checked}
-                        onChange={() => toggleIngredient(index)}
-                        className="h-5 w-5"
-                      />
-                      <span className={ing.checked ? "line-through text-muted-foreground" : ""}>
-                        {ing.amount} {ing.unit} {ing.name}
-                      </span>
-                    </li>
+                    <div
+                      key={index}
+                      className={cn(
+                        "transition-colors relative group min-h-[36px] rounded-lg",
+                        ing.checked ? "bg-muted" : "hover:bg-muted/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-3 py-1.5 px-2 cursor-pointer" onClick={() => toggleIngredient(index)}>
+                        <Checkbox
+                          checked={ing.checked}
+                          className="opacity-50 group-hover:opacity-100 transition-opacity"
+                        />
+                        <span className={cn(
+                          "flex-1",
+                          ing.checked && "line-through text-muted-foreground"
+                        )}>
+                          {ing.amount} {ing.unit} {ing.name}
+                        </span>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
 
               {/* Notes */}
               <div className="bg-card rounded-lg p-6">
-                <h2 className="text-lg font-semibold mb-2">Cooking Notes</h2>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add notes about your cooking experience..."
-                  className="min-h-[100px]"
-                />
+                <h2 className="text-xl font-semibold mb-4">Notes</h2>
+                <div 
+                  className={cn(
+                    "transition-colors relative group rounded-lg",
+                    notes ? "bg-muted" : "hover:bg-muted/50"
+                  )}
+                >
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Add notes about your cooking experience..."
+                    className="min-h-[100px] bg-transparent border-none resize-none focus-visible:ring-0 p-3"
+                  />
+                </div>
               </div>
 
               {/* Timers */}
@@ -758,97 +813,179 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
             <div className="space-y-6">
               <div className="bg-card rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-4">Instructions</h2>
-                <div className="space-y-8">
+                <div className="space-y-3">
                   {instructions.map((step, index) => (
                     <div
                       key={index}
-                      className={`space-y-2 ${
-                        index === currentStep ? "bg-primary/10" : "hover:bg-muted/50"
-                      } rounded transition-colors p-4`}
-                      onDoubleClick={() => handleStepEdit(index)}
+                      className={cn(
+                        "transition-colors relative group min-h-[80px]",
+                        index === currentStep ? "bg-primary/10" : "hover:bg-muted/50",
+                        "rounded-lg"
+                      )}
                     >
-                      <div className="flex items-start gap-4">
-                        <span className="font-mono text-lg font-bold">
-                          {index + 1}
-                        </span>
-                        {editingStep === index ? (
-                          <div className="flex-1 space-y-2">
-                            <Textarea
-                              value={editedStepText}
-                              onChange={(e) => setEditedStepText(e.target.value)}
-                              className="min-h-[100px]"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && e.metaKey) {
-                                  handleStepSave()
-                                } else if (e.key === 'Escape') {
-                                  setEditingStep(null)
-                                }
+                      <div 
+                        className="flex gap-4 p-3 cursor-pointer h-full"
+                        onClick={() => {
+                          setCurrentStep(index);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleStepEdit(index);
+                        }}
+                      >
+                        {/* Left column with step number and feedback */}
+                        <div className="flex-none flex flex-col items-center gap-1">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-background border text-sm font-medium">
+                            {index + 1}
+                          </span>
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-6 w-6 transition-colors opacity-50 hover:opacity-100",
+                                stepFeedback[index]?.liked && "opacity-100 text-green-500"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStepFeedback(index, 'like');
                               }}
-                            />
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setEditingStep(null)}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handleStepSave}
-                              >
-                                Save
-                              </Button>
-                            </div>
+                            >
+                              <ThumbsUp className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-6 w-6 transition-colors opacity-50 hover:opacity-100",
+                                stepFeedback[index]?.disliked && "opacity-100 text-red-500"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStepFeedback(index, 'dislike');
+                              }}
+                            >
+                              <ThumbsDown className="h-3 w-3" />
+                            </Button>
                           </div>
-                        ) : (
-                          <div className="flex-1">
-                            <div className="flex items-start justify-between gap-4">
-                              <p className="flex-1">{step.text}</p>
-                              <div className="flex items-center gap-2 ml-4">
+                        </div>
+
+                        {/* Main content */}
+                        <div className="flex-1">
+                          {editingStep === index ? (
+                            <div className="space-y-2">
+                              <Textarea
+                                value={editedStepText}
+                                onChange={(e) => setEditedStepText(e.target.value)}
+                                className="min-h-[100px]"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && e.metaKey) {
+                                    handleStepSave();
+                                  } else if (e.key === 'Escape') {
+                                    setEditingStep(null);
+                                  }
+                                }}
+                              />
+                              <div className="flex justify-end gap-2">
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className={cn(
-                                    "h-8 w-8 transition-colors",
-                                    stepFeedback[index]?.liked && "text-green-500"
-                                  )}
-                                  onClick={() => handleStepFeedback(index, 'like')}
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setEditingStep(null)}
                                 >
-                                  <ThumbsUp className="h-4 w-4" />
+                                  Cancel
                                 </Button>
                                 <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className={cn(
-                                    "h-8 w-8 transition-colors",
-                                    stepFeedback[index]?.disliked && "text-red-500"
-                                  )}
-                                  onClick={() => handleStepFeedback(index, 'dislike')}
+                                  size="sm"
+                                  onClick={handleStepSave}
                                 >
-                                  <ThumbsDown className="h-4 w-4" />
+                                  Save
                                 </Button>
                               </div>
                             </div>
-                          </div>
-                        )}
+                          ) : (
+                            <div className="flex justify-between gap-4">
+                              <p className="flex-1">{step.text}</p>
+                              {/* Next buttons container */}
+                              <div className="absolute bottom-2 right-4 flex items-center gap-1">
+                                {/* Previous button - only show for current step */}
+                                {index === currentStep && index > 0 && !editingStep && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 rounded-full hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Previous Step (←)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCurrentStep(prev => Math.max(0, prev - 1));
+                                    }}
+                                  >
+                                    <ChevronLeft className="h-5 w-5" />
+                                  </Button>
+                                )}
+                                {/* Next button */}
+                                {index === currentStep && index < instructions.length - 1 && !editingStep && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 rounded-full hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Next Step (→)"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCurrentStep(prev => Math.min(instructions.length - 1, prev + 1));
+                                    }}
+                                  >
+                                    <ChevronRight className="h-5 w-5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between mt-8">
+              </div>
+            </div>
+          </div>
+
+          {/* Floating Navigation Bar */}
+          <div className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm border-t shadow-lg">
+            <div className="container mx-auto p-4 max-w-6xl">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 flex items-center gap-4">
+                  <span className="text-sm text-muted-foreground">
+                    Step {currentStep + 1} of {instructions.length}
+                  </span>
+                  <span className="text-xs text-muted-foreground hidden sm:inline-block">
+                    Use ←/→ or ↑/↓ keys to navigate
+                  </span>
+                </div>
+                <div className="flex gap-3">
                   <Button
                     variant="outline"
                     onClick={() => setCurrentStep((prev) => Math.max(0, prev - 1))}
                     disabled={currentStep === 0}
+                    className="min-w-[100px]"
                   >
                     <ChevronLeft className="h-4 w-4 mr-2" />
                     Previous
                   </Button>
                   {currentStep === instructions.length - 1 ? (
-                    <Button onClick={finishCooking}>
-                      Finish Cooking
+                    <Button 
+                      onClick={finishCooking}
+                      disabled={isFinishing}
+                      className="min-w-[100px]"
+                    >
+                      {isFinishing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Finishing...
+                        </>
+                      ) : (
+                        'Finish Cooking'
+                      )}
                     </Button>
                   ) : (
                     <Button
@@ -857,6 +994,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
                           Math.min(instructions.length - 1, prev + 1)
                         )
                       }
+                      className="min-w-[100px]"
                     >
                       Next
                       <ChevronRight className="h-4 w-4 ml-2" />
@@ -866,6 +1004,9 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
               </div>
             </div>
           </div>
+
+          {/* Add padding at the bottom to prevent content from being hidden behind the floating bar */}
+          <div className="h-24" />
 
           <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
             <DialogContent>
@@ -1030,8 +1171,8 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
                         await updateRecipe.mutateAsync({
                           id: recipe.id,
                           instructions: JSON.stringify(improvements.improvedSteps),
-                          tips: JSON.stringify(improvements.tips)
-                        });
+                          tips: JSON.stringify(improvements.tips || [])
+                        } as any);
                         toast({
                           title: "Recipe Updated Successfully",
                           description: "Your recipe has been enhanced with the selected improvements",
@@ -1084,26 +1225,6 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
             </DialogContent>
           </Dialog>
         </div>
-      </div>
-
-      <div className="flex justify-between items-center p-4 border-t bg-background">
-        <Button variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button 
-          onClick={finishCooking} 
-          disabled={isFinishing}
-          className="min-w-[120px]"
-        >
-          {isFinishing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Finishing...
-            </>
-          ) : (
-            'Finish Cooking'
-          )}
-        </Button>
       </div>
     </>
   )

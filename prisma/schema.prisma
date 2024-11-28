@@ -46,5 +46,6 @@ model CookingHistory {
   notes         String?  // Optional cooking notes
   ingredients   String?  // Serialized state of ingredients with checked status
   instructions  String?  // Serialized state of instructions with checked status
+  status        String   @default("in_progress") // Can be "in_progress", "completed", or "abandoned"
   createdAt     DateTime @default(now())
 } 
