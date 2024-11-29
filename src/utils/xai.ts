@@ -1,83 +1,89 @@
-import { type RecipeIngredient } from "@/types/recipe"
-import OpenAI from 'openai'
+import OpenAI from 'openai';
+import { type GenerateImageParams, type GenerateImageResult, type RecipeSuggestion, type RecipeImprovement } from './ai';
+import { getPromptForModel, createRecipePrompt, createImprovementPrompt, createImagePrompt } from './prompts';
 
-export interface ImageGenerationResponse {
-  imageUrl: string
-  error?: string
-  errorType?: 'BILLING' | 'API' | 'UNKNOWN'
+if (!process.env.XAI_API_KEY) {
+  throw new Error('XAI_API_KEY is not set in environment variables');
 }
 
-export async function generateRecipeImage(
-  title: string,
-  ingredients: RecipeIngredient[],
-  cuisineType?: string
-): Promise<ImageGenerationResponse> {
+const openai = new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: 'https://api.x.ai/v1'
+});
+
+export async function generateRecipeImage(params: GenerateImageParams): Promise<GenerateImageResult> {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return {
-        imageUrl: '',
-        error: 'OpenAI API key is not configured',
-        errorType: 'API'
-      }
-    }
+    const promptConfig = getPromptForModel('imageGeneration', 'xai');
+    const basePrompt = createImagePrompt(params);
+    const prompt = `${basePrompt}. ${promptConfig.system}`;
 
-    const openai = new OpenAI({
-      apiKey,
-    });
-
-    const prompt = `Create a professional food photograph of ${title}. 
-      ${cuisineType ? `This is a ${cuisineType} dish. ` : ''}
-      The dish contains ${ingredients.map(ing => ing.name).join(', ')}.
-      The image should be: Overhead shot, soft natural lighting from the left, shallow depth of field, on a rustic wooden table or marble surface, garnished beautifully, steam visible if appropriate, professional food styling, high-end restaurant presentation.`
-
-    console.log('Sending request to DALL-E with prompt:', prompt);
-
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard",
-      style: "natural",
-    });
-
-    console.log('DALL-E API response:', JSON.stringify(response, null, 2));
-
-    if (!response.data?.[0]?.url) {
-      console.error('Unexpected API response structure:', response);
-      return {
-        imageUrl: '',
-        error: 'Invalid response format from API',
-        errorType: 'API'
-      }
-    }
-
-    return { imageUrl: response.data[0].url }
-  } catch (error) {
-    console.error('Error generating recipe image:', error);
-    
-    // Check for billing errors
-    if (error instanceof Error) {
-      const errorMessage = error.message.toLowerCase();
-      if (errorMessage.includes('billing') || errorMessage.includes('quota')) {
-        return {
-          imageUrl: '',
-          error: 'The AI image generation service is currently unavailable due to billing limits. Please try again later or upload an image manually.',
-          errorType: 'BILLING'
-        }
-      }
-      return {
-        imageUrl: '',
-        error: error.message,
-        errorType: 'API'
-      }
-    }
-    
+    // Note: xAI currently doesn't support image generation
+    // Returning error until they add support
     return {
       imageUrl: '',
-      error: 'An unexpected error occurred while generating the image',
-      errorType: 'UNKNOWN'
+      error: 'Image generation not yet supported by xAI',
+    };
+  } catch (error) {
+    console.error('Error in xAI image generation:', error);
+    return {
+      imageUrl: '',
+      error: error instanceof Error ? error.message : 'Failed to generate image',
+    };
+  }
+}
+
+export async function getRecipeSuggestions(title: string, isImprovement = false): Promise<RecipeSuggestion | RecipeImprovement> {
+  try {
+    const promptConfig = getPromptForModel(
+      isImprovement ? 'recipeImprovement' : 'recipeGeneration',
+      'xai'
+    );
+
+    const userPrompt = isImprovement 
+      ? createImprovementPrompt(title)
+      : createRecipePrompt(title);
+
+    const completion = await openai.chat.completions.create({
+      model: 'grok-1',  // Using grok-1 as it's their current model
+      temperature: 0.7,
+      max_tokens: 1000,
+      messages: [
+        {
+          role: 'system',
+          content: promptConfig.system
+        },
+        {
+          role: 'user',
+          content: userPrompt
+        }
+      ]
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('Invalid response format from xAI');
     }
+
+    const parsed = JSON.parse(content);
+    
+    if (isImprovement) {
+      if (!parsed.improvedSteps || !Array.isArray(parsed.improvedSteps) ||
+          !parsed.summary || typeof parsed.summary !== 'string' ||
+          !parsed.tips || !Array.isArray(parsed.tips)) {
+        throw new Error('Invalid improvement response format');
+      }
+      return parsed as RecipeImprovement;
+    } else {
+      if (!Array.isArray(parsed.ingredients) || !Array.isArray(parsed.instructions) || 
+          typeof parsed.prepTime !== 'number' || typeof parsed.cookTime !== 'number' ||
+          !['Easy', 'Medium', 'Hard'].includes(parsed.difficulty)) {
+        throw new Error('Invalid recipe suggestion format');
+      }
+      return parsed as RecipeSuggestion;
+    }
+
+  } catch (error) {
+    console.error('Error in xAI recipe generation:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to generate recipe');
   }
 } 

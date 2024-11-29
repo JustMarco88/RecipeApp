@@ -81,6 +81,106 @@ interface ActiveSession extends CookingHistory {
   recipe: Recipe;
 }
 
+interface RecipeCardProps {
+  recipe: Recipe
+  onEdit: () => void
+  onDelete: () => void
+  onCook: () => void
+  onSearch: (query: string) => void
+}
+
+function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardProps) {
+  const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipe.id)
+  const lastCooked = history?.[0]
+  const cookCount = history?.length || 0
+
+  return (
+    <div className="border rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+      <div className="relative aspect-video w-full bg-muted">
+        {recipe.imageUrl ? (
+          <>
+            <img
+              src={recipe.imageUrl}
+              alt={recipe.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                console.error('Image failed to load:', recipe.imageUrl)
+                (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
+              }}
+            />
+            <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1 text-white text-sm font-medium flex items-center gap-1">
+              <ChefHat className="h-4 w-4" />
+              <span>{cookCount}x</span>
+            </div>
+            {recipe.tags.length > 0 && (
+              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent backdrop-blur-[2px]">
+                <div className="flex flex-wrap gap-1.5">
+                  {recipe.tags.map((tag, index) => (
+                    <button
+                      key={index}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSearch(tag);
+                      }}
+                      className="inline-flex items-center bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-full text-xs transition-colors"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImagePlus className="h-12 w-12" />
+          </div>
+        )}
+      </div>
+      
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">{recipe.title}</h3>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={onCook}>
+              <ChefHat className="h-4 w-4" />
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="icon" onClick={onEdit}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Edit Recipe</DialogTitle>
+                  <DialogDescription>
+                    Modify your recipe details
+                  </DialogDescription>
+                </DialogHeader>
+                <RecipeForm recipeId={recipe.id} />
+              </DialogContent>
+            </Dialog>
+            <Button variant="destructive" size="icon" onClick={onDelete}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="text-sm text-muted-foreground space-y-1">
+          <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
+          <p>Difficulty: {recipe.difficulty}</p>
+          {lastCooked?.completedAt && (
+            <p className="text-xs mt-2">
+              Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RecipeList() {
   const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -152,7 +252,7 @@ export function RecipeList() {
 
   const sortedAndFilteredRecipes = (recipes as RecipeWithHistory[] | undefined)
     ?.filter(recipe => {
-      if (!searchQuery.trim()) return true
+      if (!searchQuery.trim()) return true;
       const searchTerms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
       return (
         searchTerms.every(term => recipe.title.toLowerCase().includes(term)) ||
@@ -187,25 +287,61 @@ export function RecipeList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">My Recipes</h2>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              New Recipe
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create New Recipe</DialogTitle>
-              <DialogDescription>
-                Add a new recipe to your collection
-              </DialogDescription>
-            </DialogHeader>
-            <RecipeForm />
-          </DialogContent>
-        </Dialog>
+      <div className="flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">My Recipes</h2>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                New Recipe
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create New Recipe</DialogTitle>
+                <DialogDescription>
+                  Add your recipe details below
+                </DialogDescription>
+              </DialogHeader>
+              <RecipeForm />
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search recipes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                >
+                  <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
+            </div>
+          </div>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Sort by..." />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Active Cooking Sessions */}
@@ -247,53 +383,20 @@ export function RecipeList() {
         </div>
       )}
 
-      <div className="flex gap-4 items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search recipes by title, ingredients, instructions..."
-            className="pl-9 pr-9"
-          />
-          {searchQuery && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
-              onClick={() => setSearchQuery("")}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Sort by..." />
-          </SelectTrigger>
-          <SelectContent>
-            {sortOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       {sortedAndFilteredRecipes?.length === 0 ? (
         <div className="text-center text-muted-foreground py-8">
           No recipes found matching "{searchQuery}"
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {sortedAndFilteredRecipes?.map((recipe) => (
             <RecipeCard
               key={recipe.id}
               recipe={recipe}
               onEdit={() => setSelectedRecipe(recipe.id)}
               onDelete={() => handleDelete(recipe)}
-              onCook={() => setCookingViewRecipe({ recipe })}
+              onCook={() => setCookingViewRecipe({ recipe, skipResumeDialog: false })}
+              onSearch={setSearchQuery}
             />
           ))}
         </div>
@@ -323,88 +426,6 @@ export function RecipeList() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  )
-}
-
-interface RecipeCardProps {
-  recipe: RecipeWithHistory
-  onEdit: () => void
-  onDelete: () => void
-  onCook: () => void
-}
-
-function RecipeCard({ recipe, onEdit, onDelete, onCook }: RecipeCardProps) {
-  const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipe.id)
-  const lastCooked = history?.[0]
-  const cookCount = history?.length || 0
-
-  return (
-    <div className="border rounded-lg shadow-sm overflow-hidden">
-      <div className="relative aspect-video w-full bg-muted">
-        {recipe.imageUrl ? (
-          <>
-            <img
-              src={recipe.imageUrl}
-              alt={recipe.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                console.error('Image failed to load:', recipe.imageUrl)
-                (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
-              }}
-            />
-            <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1 text-white text-sm font-medium flex items-center gap-1">
-              <ChefHat className="h-4 w-4" />
-              <span>{cookCount}x</span>
-            </div>
-          </>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-            <ImagePlus className="h-12 w-12" />
-          </div>
-        )}
-      </div>
-      
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{recipe.title}</h3>
-          <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={onCook}>
-              <ChefHat className="h-4 w-4" />
-            </Button>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="icon" onClick={onEdit}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Edit Recipe</DialogTitle>
-                  <DialogDescription>
-                    Modify your recipe details
-                  </DialogDescription>
-                </DialogHeader>
-                <RecipeForm recipeId={recipe.id} />
-              </DialogContent>
-            </Dialog>
-            <Button variant="destructive" size="icon" onClick={onDelete}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="text-sm text-muted-foreground space-y-1">
-          <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
-          <p>Difficulty: {recipe.difficulty}</p>
-          {lastCooked?.completedAt && (
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              <History className="h-3 w-3" />
-              <span>Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago</span>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

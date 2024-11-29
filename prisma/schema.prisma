@@ -44,8 +44,9 @@ model CookingHistory {
   actualTime    Int?     // In minutes
   servingsCooked Int?
   notes         String?  // Optional cooking notes
-  ingredients   String?  // Serialized state of ingredients with checked status
-  instructions  String?  // Serialized state of instructions with checked status
-  status        String   @default("in_progress") // Can be "in_progress", "completed", or "abandoned"
+  stepFeedback  String?  // JSON string of feedback per step
   createdAt     DateTime @default(now())
+
+  @@index([recipeId])
+  @@index([startedAt])
 } 

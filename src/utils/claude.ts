@@ -1,4 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { type RecipeSuggestion, type RecipeImprovement } from './ai';
+import { getPromptForModel, createRecipePrompt, createImprovementPrompt, createImagePrompt } from './prompts';
+import { type Ingredient } from '@/types/recipe';
 
 if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error('ANTHROPIC_API_KEY is not set in environment variables');
@@ -8,55 +11,42 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-export interface RecipeSuggestion {
-  ingredients: Array<{
-    name: string;
-    amount: number;
-    unit: string;
-  }>;
-  instructions: string[];
-  prepTime: number;
-  cookTime: number;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
-  cuisineType: string;
-  tags: string[];
-}
-
-export interface RecipeImprovement {
-  improvedSteps: string[];
-  summary: string;
-  tips: string[];
-}
-
 export async function getRecipeSuggestions(prompt: string, isImprovement = false): Promise<RecipeSuggestion | RecipeImprovement> {
   try {
+    const promptConfig = getPromptForModel(
+      isImprovement ? 'recipeImprovement' : 'recipeGeneration',
+      'claude'
+    );
+
+    const userPrompt = isImprovement 
+      ? createImprovementPrompt(prompt)
+      : createRecipePrompt(prompt);
+
     const response = await anthropic.messages.create({
       model: "claude-3-haiku-20240307",
       max_tokens: 1000,
       temperature: 0.7,
-      messages: [{ role: "user", content: prompt }],
+      system: promptConfig.system,
+      messages: [{ role: "user", content: userPrompt }],
     });
 
     if (!response.content?.[0] || !('text' in response.content[0])) {
       throw new Error('Invalid response format from Claude');
     }
 
-    const responseText = response.content[0].text;
+    const responseText = response.content[0].text.trim();
     console.log('Raw response was:', responseText);
 
-    // Clean up the response text
-    const cleanedResponse = responseText
-      .replace(/\n/g, ' ')  // Replace newlines with spaces
-      .replace(/\\n/g, ' ') // Replace escaped newlines
-      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-      .replace(/([{,])\s*"(\w+)":\s*"([^"]*?)"\s*([},])/g, '$1"$2":"$3"$4') // Clean up JSON formatting
-
     try {
-      // Parse the cleaned response
+      // Clean up any potential fraction values
+      const cleanedResponse = responseText.replace(
+        /"amount":\s*(\d+)\/(\d+)/g, 
+        (_, numerator, denominator) => `"amount": ${Number(numerator) / Number(denominator)}`
+      );
+
       const parsed = JSON.parse(cleanedResponse);
       
       if (isImprovement) {
-        // Validate improvement response
         if (!parsed.improvedSteps || !Array.isArray(parsed.improvedSteps) ||
             !parsed.summary || typeof parsed.summary !== 'string' ||
             !parsed.tips || !Array.isArray(parsed.tips)) {
@@ -64,12 +54,19 @@ export async function getRecipeSuggestions(prompt: string, isImprovement = false
         }
         return parsed as RecipeImprovement;
       } else {
-        // Validate recipe suggestion response
         if (!Array.isArray(parsed.ingredients) || !Array.isArray(parsed.instructions) || 
             typeof parsed.prepTime !== 'number' || typeof parsed.cookTime !== 'number' ||
             !['Easy', 'Medium', 'Hard'].includes(parsed.difficulty)) {
           throw new Error('Invalid recipe suggestion format');
         }
+
+        // Validate and standardize units
+        parsed.ingredients = parsed.ingredients.map((ing: Ingredient) => ({
+          ...ing,
+          unit: standardizeUnit(ing.unit),
+          amount: roundToReasonableNumber(ing.amount, ing.unit)
+        }));
+
         return parsed as RecipeSuggestion;
       }
     } catch (parseError) {
@@ -91,32 +88,16 @@ export async function generateRecipeImagePrompt(recipe: {
   ingredients: Array<{ name: string }>;
   cuisineType?: string;
 }): Promise<string> {
-  const prompt = `You are a professional food photographer and stylist. Create a detailed image prompt for a beautiful, appetizing photo of this recipe.
-  
-  Recipe: "${recipe.title}"
-  Main ingredients: ${recipe.ingredients.map(i => i.name).join(', ')}
-  ${recipe.cuisineType ? `Cuisine type: ${recipe.cuisineType}` : ''}
-
-  Respond with ONLY the image prompt - no explanations, no additional text.
-  The prompt should:
-  - Describe a professional food photography setup
-  - Include lighting details (soft, natural lighting preferred)
-  - Mention plating and garnish details
-  - Include background/setting suggestions
-  - Be specific about angle and composition
-  - Be 2-3 sentences maximum
-  
-  Example format (do not use this exact text):
-  "A rustic wooden table with soft natural light streaming from the left, showcasing a perfectly plated pasta dish with fresh herbs scattered artfully. The shallow depth of field focuses on the steam rising from the perfectly cooked noodles."`;
-
   try {
-    console.log('Generating image prompt for recipe:', recipe.title);
+    const promptConfig = getPromptForModel('imageGeneration', 'claude');
+    const userPrompt = createImagePrompt(recipe);
     
     const message = await anthropic.messages.create({
       model: 'claude-3-haiku-20240307',
       max_tokens: 200,
       temperature: 0.7,
-      messages: [{ role: 'user', content: prompt }],
+      system: promptConfig.system,
+      messages: [{ role: 'user', content: userPrompt }],
     });
 
     if (!message.content?.[0] || !('text' in message.content[0])) {
@@ -129,4 +110,50 @@ export async function generateRecipeImagePrompt(recipe: {
     console.error('Error generating image prompt:', error);
     throw new Error('Failed to generate image prompt');
   }
+}
+
+function standardizeUnit(unit: string): string {
+  const unitMap: Record<string, string> = {
+    'gram': 'g',
+    'grams': 'g',
+    'gr': 'g',
+    'milliliter': 'ml',
+    'milliliters': 'ml',
+    'millilitre': 'ml',
+    'millilitres': 'ml',
+    'kilogram': 'kg',
+    'kilograms': 'kg',
+    'liter': 'l',
+    'liters': 'l',
+    'litre': 'l',
+    'litres': 'l',
+    'teaspoon': 'tsp',
+    'teaspoons': 'tsp',
+    'tablespoon': 'tbsp',
+    'tablespoons': 'tbsp',
+  };
+
+  const standardized = unitMap[unit.toLowerCase()];
+  return standardized || unit;
+}
+
+function roundToReasonableNumber(amount: number, unit: string): number {
+  // Round to reasonable numbers based on unit and amount
+  if (unit === 'g' || unit === 'ml') {
+    if (amount >= 1000) {
+      return Math.round(amount / 1000) * 1000;
+    } else if (amount >= 100) {
+      return Math.round(amount / 50) * 50;
+    } else if (amount >= 10) {
+      return Math.round(amount / 5) * 5;
+    }
+    return Math.round(amount);
+  }
+  
+  // For small measurements like tsp/tbsp, round to quarter units
+  if (unit === 'tsp' || unit === 'tbsp') {
+    return Math.round(amount * 4) / 4;
+  }
+
+  return amount;
 } 

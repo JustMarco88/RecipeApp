@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -9,13 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { trpc } from "@/utils/trpc"
+import { api } from "@/utils/api"
 import { Plus, Minus, ImagePlus, X, Loader2, Wand2 } from "lucide-react"
 import { DialogClose } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { type Ingredient } from "@/types/recipe"
-import { type RecipeSuggestion } from "@/utils/claude"
+import { type RecipeSuggestion, type RecipeImprovement } from "@/types/recipe"
 import { SuggestionReviewDialog } from "./suggestion-review-dialog"
+import { type TRPCClientErrorLike } from "@trpc/client"
+import { type AppRouter } from "@/server/api/root"
 
 type Difficulty = "Easy" | "Medium" | "Hard"
 
@@ -49,72 +51,61 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
   const [isGettingSuggestions, setIsGettingSuggestions] = useState(false)
   const [showSuggestionDialog, setShowSuggestionDialog] = useState(false)
   const [currentSuggestions, setCurrentSuggestions] = useState<RecipeSuggestion | null>(null)
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false)
+  const dialogRef = useRef<HTMLButtonElement>(null)
 
-  const utils = trpc.useContext()
+  const utils = api.useContext()
   
-  const { data: existingRecipe } = trpc.recipe.getById.useQuery(recipeId ?? "", {
+  const { data: existingRecipe } = api.recipe.getById.useQuery(recipeId ?? "", {
     enabled: !!recipeId,
   })
 
-  const uploadImage = trpc.recipe.uploadImage.useMutation({
-    onSuccess: (url) => {
+  const uploadImage = api.recipe.uploadImage.useMutation({
+    onSuccess: (url: string) => {
       console.log('Image upload success:', url)
       setImageUrl(url)
       setIsUploading(false)
-      toast({
-        title: "Success",
-        description: "Image uploaded successfully",
-      })
     },
-    onError: (error) => {
+    onError: (error: TRPCClientErrorLike<AppRouter>) => {
       console.error('Image upload error:', error)
       setImageError("Failed to upload image")
       setIsUploading(false)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to upload image",
-      })
-    },
-  })
+    }
+  });
 
-  const deleteImage = trpc.recipe.deleteImage.useMutation()
+  const deleteImage = api.recipe.deleteImage.useMutation()
 
-  const createRecipe = trpc.recipe.create.useMutation({
+  const createRecipe = api.recipe.create.useMutation({
     onSuccess: () => {
       utils.recipe.getAll.invalidate()
       toast({
         title: "Success",
         description: "Recipe created successfully",
       })
+      dialogRef.current?.click()
     },
   })
 
-  const updateRecipe = trpc.recipe.update.useMutation({
+  const updateRecipe = api.recipe.update.useMutation({
     onSuccess: () => {
       utils.recipe.getAll.invalidate()
       toast({
         title: "Success",
         description: "Recipe updated successfully",
       })
+      dialogRef.current?.click()
     },
   })
 
-  const getSuggestions = trpc.recipe.getSuggestions.useMutation({
-    onSuccess: (suggestions) => {
+  const getSuggestions = api.recipe.getSuggestions.useMutation({
+    onSuccess: (suggestions: RecipeSuggestion | RecipeImprovement) => {
       if ('ingredients' in suggestions) {
         setCurrentSuggestions(suggestions)
         setShowSuggestionDialog(true)
-      } else {
-        toast({
-          title: "Error",
-          description: "Invalid suggestion format received",
-          variant: "destructive",
-        })
       }
       setIsGettingSuggestions(false)
     },
-    onError: (error) => {
+    onError: (error: TRPCClientErrorLike<AppRouter>) => {
       console.error('Error getting suggestions:', error)
       toast({
         title: "Error",
@@ -122,8 +113,8 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
         variant: "destructive",
       })
       setIsGettingSuggestions(false)
-    },
-  })
+    }
+  });
 
   const handleGetSuggestions = async () => {
     if (!title.trim()) {
@@ -152,22 +143,18 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
 
       // If we don't have an image yet and we have ingredients, generate one
       if (!imageUrl && changes.ingredients && changes.ingredients.length > 0) {
-        console.log('Generating image for recipe:', {
-          title,
-          ingredients: changes.ingredients,
-          cuisineType: changes.cuisineType
-        });
+        console.log('Starting image generation for recipe:', title);
 
-        setIsUploading(true);
-        const generatedImageUrl = await generateImage.mutateAsync({
+        setIsGeneratingImage(true);
+        
+        const result = await generateImage.mutateAsync({
           title,
           ingredients: changes.ingredients,
           cuisineType: changes.cuisineType,
         });
 
-        console.log('Generated image URL:', generatedImageUrl);
-        if (generatedImageUrl) {
-          setImageUrl(generatedImageUrl);
+        if (result.imageUrl) {
+          setImageUrl(result.imageUrl);
           toast({
             title: "Success",
             description: "Generated a recipe image using AI!",
@@ -187,21 +174,57 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
         description: error instanceof Error ? error.message : "Failed to apply changes",
       });
     } finally {
-      setIsUploading(false);
+      setIsGeneratingImage(false);
     }
   };
 
-  const generateImage = trpc.recipe.generateImage.useMutation({
-    onError: (error) => {
+  const generateImage = api.recipe.generateImage.useMutation({
+    onError: (error: TRPCClientErrorLike<AppRouter>) => {
       console.error('Error generating image:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to generate image",
+        description: "Failed to generate image. Please try again.",
+        variant: "destructive",
       });
-      setIsUploading(false);
     },
   });
+
+  const handleGenerateImage = async () => {
+    if (!title || !ingredients.length) {
+      toast({
+        title: "Error",
+        description: "Please add a title and at least one ingredient first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    try {
+      const result = await generateImage.mutateAsync({
+        title,
+        ingredients,
+        cuisineType,
+      });
+
+      if (result.imageUrl) {
+        setImageUrl(result.imageUrl);
+        toast({
+          title: "Success",
+          description: "Generated a recipe image using AI!",
+        });
+      }
+    } catch (error) {
+      console.error('Error generating image:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
 
   useEffect(() => {
     if (existingRecipe) {
@@ -551,10 +574,6 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
         await createRecipe.mutateAsync(recipeData)
         resetForm()
       }
-      const dialogClose = document.querySelector('[data-dialog-close]') as HTMLButtonElement
-      if (dialogClose) {
-        dialogClose.click()
-      }
     } catch (error) {
       console.error("Error saving recipe:", error)
       setError("Failed to save recipe. Please try again.")
@@ -605,67 +624,6 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
       </div>
     </div>
   )
-
-  const handleGenerateImage = async () => {
-    if (!title || !ingredients.length) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Recipe title and ingredients are required to generate an image",
-      });
-      return;
-    }
-
-    setIsUploading(true);
-    try {
-      console.log('Generating image for recipe:', {
-        title,
-        ingredients: ingredients.map(i => i.name).join(', '),
-        cuisineType
-      });
-
-      const localImageUrl = await generateImage.mutateAsync({
-        title,
-        ingredients,
-        cuisineType,
-      });
-
-      console.log('Generated new image URL:', localImageUrl);
-      
-      if (!localImageUrl) {
-        throw new Error('No image URL returned');
-      }
-
-      setImageUrl(localImageUrl);
-      toast({
-        title: "Success",
-        description: "Generated a new recipe image!",
-      });
-    } catch (error) {
-      console.error('Failed to generate new image:', error);
-      
-      // Check if it's a billing error
-      const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
-      if (errorMessage.includes('billing') || errorMessage.includes('quota')) {
-        toast({
-          variant: "destructive",
-          title: "Service Unavailable",
-          description: "The AI image generation service is currently unavailable. Please try uploading an image manually.",
-          duration: 5000,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error instanceof Error 
-            ? error.message 
-            : "Failed to generate new image. Please try again or upload manually.",
-        });
-      }
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
   return (
     <>
@@ -938,7 +896,40 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
               </Select>
             </div>
 
-            <div>
+            <div className="mb-4">
+              <label className="text-lg font-semibold mb-2 block">Tags</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {tags.map((tag, index) => (
+                  <div key={index} className="flex items-center bg-secondary px-2 py-1 rounded">
+                    <span>{tag}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTags(tags.filter((_, i) => i !== index))}
+                      className="ml-2 text-gray-500 hover:text-gray-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add tags (e.g., vegetarian, gluten-free)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.currentTarget.value) {
+                      e.preventDefault();
+                      const newTag = e.currentTarget.value.trim();
+                      if (newTag && !tags.includes(newTag)) {
+                        setTags([...tags, newTag]);
+                        e.currentTarget.value = '';
+                      }
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mb-4">
               <label className="text-lg font-semibold mb-2 block">Cuisine Type</label>
               <Input
                 value={cuisineType}
@@ -948,13 +939,17 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button type="submit" disabled={createRecipe.isLoading || updateRecipe.isLoading || isUploading}>
+              <Button 
+                type="submit" 
+                disabled={createRecipe.isLoading || updateRecipe.isLoading || isUploading || isGeneratingImage}
+              >
                 {recipeId ? (
                   updateRecipe.isLoading ? "Updating..." : "Update Recipe"
                 ) : (
                   createRecipe.isLoading ? "Creating..." : "Create Recipe"
                 )}
               </Button>
+              <DialogClose ref={dialogRef} className="hidden" />
             </div>
           </div>
         </div>
