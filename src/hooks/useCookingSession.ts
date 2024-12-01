@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { useCookingStore } from '../store/cookingStore'
-import { Recipe } from '@prisma/client'
+import { useCookingStore, type Recipe } from '../store/cookingStore'
 
 export const useCookingSession = (recipe: Recipe | null) => {
   const {
@@ -13,42 +12,19 @@ export const useCookingSession = (recipe: Recipe | null) => {
     setCurrentStep,
     addNote,
     rateStep,
+    toggleIngredient,
     addTimer,
     startTimer,
     pauseTimer,
     resetTimer,
+    deleteTimer,
+    renameTimer,
+    updateTimerRemaining,
   } = useCookingStore()
 
   // Get current session if exists
   const currentSession = recipe && sessions[recipe.id]
-  const isActiveSession = activeSessionId === recipe?.id
-
-  // Auto-cleanup effect for timers
-  useEffect(() => {
-    if (!currentSession) return
-
-    const timerInterval = setInterval(() => {
-      currentSession.timers.forEach((timer) => {
-        if (timer.isActive && timer.remaining > 0) {
-          useCookingStore.setState((state) => ({
-            sessions: {
-              ...state.sessions,
-              [currentSession.recipeId]: {
-                ...currentSession,
-                timers: currentSession.timers.map((t) =>
-                  t.id === timer.id
-                    ? { ...t, remaining: Math.max(0, t.remaining - 1) }
-                    : t
-                ),
-              },
-            },
-          }))
-        }
-      })
-    }, 1000)
-
-    return () => clearInterval(timerInterval)
-  }, [currentSession])
+  const isActive = activeSessionId === recipe?.id
 
   const startCooking = () => {
     if (!recipe) return
@@ -72,9 +48,9 @@ export const useCookingSession = (recipe: Recipe | null) => {
   return {
     // Session state
     session: currentSession,
-    isActive: isActiveSession,
+    isActive,
     currentStep: currentSession?.currentStep ?? 0,
-    notes: currentSession?.notes ?? [],
+    notes: currentSession?.notes ?? {},
     stepRatings: currentSession?.stepRatings ?? {},
     timers: currentSession?.timers ?? [],
 
@@ -82,16 +58,21 @@ export const useCookingSession = (recipe: Recipe | null) => {
     startCooking,
     pauseCooking,
     finishCooking,
+    resumeSession,
 
     // Step actions
     setCurrentStep,
     addNote,
     rateStep,
+    toggleIngredient,
 
     // Timer actions
     addTimer,
     startTimer,
     pauseTimer,
     resetTimer,
+    deleteTimer,
+    renameTimer,
+    updateTimerRemaining,
   }
 } 

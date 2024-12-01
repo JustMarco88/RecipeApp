@@ -12,9 +12,17 @@ export interface GenerateImageResult {
   error?: string;
 }
 
+export interface RecipeRequirements {
+  servings: number;
+  dietaryRestrictions: string[];
+  preferences: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+}
+
 export interface GenerateRecipeParams {
   title: string;
   isImprovement?: boolean;
+  requirements?: RecipeRequirements;
 }
 
 export interface RecipeSuggestion {
@@ -67,21 +75,25 @@ export async function generateRecipeImage(params: GenerateImageParams): Promise<
   }
 }
 
-export async function getRecipeSuggestions(title: string, isImprovement = false): Promise<RecipeSuggestion | RecipeImprovement> {
+export async function getRecipeSuggestions(
+  title: string,
+  isImprovement = false,
+  requirements?: RecipeRequirements
+): Promise<RecipeSuggestion | RecipeImprovement> {
   switch (RECIPE_SERVICE) {
     case 'openai':
-      return getOpenAISuggestions(title);
+      return getOpenAISuggestions(title, requirements);
     case 'claude':
-      return getClaudeSuggestions(title, isImprovement);
+      return getClaudeSuggestions(title, isImprovement, requirements);
     case 'xai':
-      return getXAISuggestions(title);
+      return getXAISuggestions(title, requirements);
     default:
       return {
         ingredients: [],
         instructions: [],
         prepTime: 0,
         cookTime: 0,
-        difficulty: "Easy",
+        difficulty: requirements?.difficulty || "Easy",
         cuisineType: "",
         tags: [],
       };

@@ -26,6 +26,7 @@ import { formatDistanceToNow } from "date-fns"
 import { type Recipe, type CookingHistory, type RecipeWithHistory, type RecipeTimer } from "@/types/recipe"
 import { RecipeHistory } from './recipe-history'
 import { cn } from "@/lib/utils"
+import { RecipeWizard } from "./recipe-wizard"
 
 type SortOption = {
   value: string
@@ -259,6 +260,7 @@ export function RecipeList() {
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
   const [sortBy, setSortBy] = useState<string>("newest")
   const [sessionToClose, setSessionToClose] = useState<{ recipeId: string, recipeName: string } | null>(null)
+  const [showNewRecipeWizard, setShowNewRecipeWizard] = useState(false)
 
   // Get active and saved sessions
   const activeSessions = useMemo(() => {
@@ -389,24 +391,18 @@ export function RecipeList() {
       <div className="flex flex-col gap-4">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold">My Recipes</h2>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Recipe
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create New Recipe</DialogTitle>
-                <DialogDescription>
-                  Add your recipe details below
-                </DialogDescription>
-              </DialogHeader>
-              <RecipeForm />
-            </DialogContent>
-          </Dialog>
+          <Button onClick={() => setShowNewRecipeWizard(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Recipe
+          </Button>
         </div>
+
+        {/* Show wizard instead of dialog */}
+        {showNewRecipeWizard && (
+          <RecipeWizard
+            onClose={() => setShowNewRecipeWizard(false)}
+          />
+        )}
 
         {/* Active Cooking Sessions */}
         {activeSessions.length > 0 && (

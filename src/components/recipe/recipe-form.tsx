@@ -42,6 +42,7 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
   const [cuisineType, setCuisineType] = useState("")
   const [tags, setTags] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
   const [imageUrl, setImageUrl] = useState<string>('')
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -540,45 +541,58 @@ export function RecipeForm({ recipeId, onError }: RecipeFormProps) {
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
 
     if (!validateForm()) {
-      return
-    }
-
-    const recipeData = {
-      title: title.trim(),
-      ingredients: ingredients.map(ing => ({
-        name: ing.name.trim(),
-        amount: Number(ing.amount),
-        unit: ing.unit.trim(),
-      })),
-      instructions: instructions.map(inst => inst.trim()).filter(Boolean),
-      prepTime: Math.max(0, prepTime),
-      cookTime: Math.max(0, cookTime),
-      servings: Math.max(1, servings),
-      difficulty,
-      cuisineType: cuisineType.trim(),
-      tags: tags.map(tag => tag.trim()).filter(Boolean),
-      imageUrl: imageUrl || undefined,
+      setIsSubmitting(false);
+      return;
     }
 
     try {
+      const cleanedData = {
+        title: title.trim(),
+        ingredients: ingredients.map(ing => ({
+          name: ing.name.trim(),
+          amount: Number(ing.amount),
+          unit: ing.unit.trim(),
+        })),
+        instructions: instructions.map(inst => inst.trim()).filter(Boolean),
+        prepTime: Math.max(0, prepTime),
+        cookTime: Math.max(0, cookTime),
+        servings: Math.max(1, servings),
+        difficulty,
+        cuisineType: cuisineType.trim(),
+        tags: tags.map(tag => tag.trim()).filter(Boolean),
+        imageUrl: imageUrl || undefined,
+      };
+
       if (recipeId) {
         await updateRecipe.mutateAsync({
           id: recipeId,
-          data: recipeData,
-        })
+          data: cleanedData
+        });
       } else {
-        await createRecipe.mutateAsync(recipeData)
-        resetForm()
+        await createRecipe.mutateAsync(cleanedData);
+        resetForm();
       }
     } catch (error) {
-      console.error("Error saving recipe:", error)
-      setError("Failed to save recipe. Please try again.")
+      console.error('Error saving recipe:', error);
+      if (error instanceof Error) {
+        onError?.(error.message);
+      } else {
+        onError?.('An unknown error occurred');
+      }
+      toast({
+        title: "Error",
+        description: "Failed to save recipe. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const NumberInput = ({ 
     value, 

@@ -20,6 +20,7 @@ model Recipe {
   tags        String[] // Dietary restrictions and other tags
   imageUrl    String?
   nutrition   String? // JSON string of nutrition object
+  timers      String? // JSON string of timer configurations
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   userId      String? // For future user authentication
@@ -49,4 +50,13 @@ model CookingHistory {
 
   @@index([recipeId])
   @@index([startedAt])
+}
+
+model TimerTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  duration    Int      // In seconds
+  description String?
+  category    String   // e.g., "boiling", "baking", "resting"
+  createdAt   DateTime @default(now())
 } 

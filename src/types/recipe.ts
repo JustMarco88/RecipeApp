@@ -8,8 +8,9 @@ export interface RecipeIngredient {
 
 export interface Ingredient extends RecipeIngredient {}
 
-export interface Recipe extends PrismaRecipe {
+export interface Recipe extends Omit<PrismaRecipe, 'timers'> {
   cookingHistory?: CookingHistory[];
+  timers?: RecipeTimer[] | string | null;
 }
 
 export interface CookingHistory {
@@ -44,4 +45,30 @@ export interface RecipeSuggestion {
   difficulty: "Easy" | "Medium" | "Hard";
   cuisineType: string;
   tags: string[];
+  timers?: Record<string, number>;
+}
+
+export interface RecipeTimer {
+  id: string;
+  name: string;
+  duration: number; // in seconds
+  stepIndex: number;
+  description?: string;
+  category?: string;
+}
+
+export interface TimerTemplate {
+  id: string;
+  name: string;
+  duration: number;
+  description?: string;
+  category: string;
+}
+
+export interface TimerSuggestion {
+  name: string;
+  duration: number;
+  stepIndex: number;
+  description?: string;
+  category?: string;
 } 

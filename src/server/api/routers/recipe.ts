@@ -193,10 +193,20 @@ export const recipeRouter = createTRPCRouter({
     .input(z.object({
       title: z.string(),
       isImprovement: z.boolean().optional(),
+      requirements: z.object({
+        servings: z.number(),
+        dietaryRestrictions: z.array(z.string()),
+        preferences: z.string(),
+        difficulty: z.enum(['Easy', 'Medium', 'Hard'])
+      }).optional()
     }))
     .mutation(async ({ input }) => {
       try {
-        const suggestions = await getRecipeSuggestions(input.title, input.isImprovement);
+        const suggestions = await getRecipeSuggestions(
+          input.title,
+          input.isImprovement,
+          input.requirements
+        );
         return suggestions;
       } catch (error) {
         throw new TRPCError({

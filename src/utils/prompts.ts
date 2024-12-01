@@ -82,10 +82,114 @@ Respond with ONLY the JSON - no explanations or additional text.`,
       negative: "text, watermark, label, collage, low quality, blurry, oversaturated",
     },
   },
+
+  timerAnalysis: {
+    openai: {
+      system: `Analyze recipe instructions to identify steps that require timing. For each timing-related step:
+1. Extract the explicit duration if mentioned
+2. Infer reasonable durations for common cooking actions
+3. Consider the context and ingredient quantities
+4. Group similar timing actions into categories (e.g., boiling, baking, resting)
+5. Provide clear, descriptive names for each timer
+
+Format the response as a JSON array of timer suggestions:
+{
+  "timers": [
+    {
+      "name": "Boil Pasta",
+      "duration": 480, // in seconds
+      "stepIndex": 2,
+      "description": "Cook pasta until al dente",
+      "category": "boiling"
+    }
+  ]
+}
+
+Common cooking durations to consider:
+- Boiling pasta: 8-10 minutes
+- Sautéing vegetables: 5-7 minutes
+- Resting meat: 5-15 minutes depending on size
+- Rice cooking: 15-20 minutes
+- Preheating oven: 10-15 minutes`,
+      examples: {
+        positive: [
+          "Boil the pasta for 8-10 minutes until al dente",
+          "Sauté onions until translucent, about 5 minutes",
+          "Let the meat rest for 10 minutes before slicing"
+        ],
+        negative: [
+          "Add salt and pepper to taste",
+          "Stir until well combined",
+          "Serve immediately"
+        ]
+      }
+    },
+    claude: {
+      system: `As a culinary timing expert, analyze recipe instructions to identify and suggest appropriate timers. Consider:
+
+1. Explicit timing instructions in the steps
+2. Standard cooking durations for common techniques
+3. Ingredient quantities and their impact on timing
+4. The logical sequence and dependencies between steps
+5. Opportunities for parallel timing
+
+Provide timer suggestions that:
+- Have clear, action-oriented names
+- Include reasonable default durations
+- Are linked to specific recipe steps
+- Are categorized by cooking technique
+- Include helpful descriptions
+
+Format as JSON array of timer objects with name, duration (seconds), stepIndex, description, and category.`,
+      examples: {
+        positive: [
+          "Simmer the sauce for 20 minutes until thickened",
+          "Bake at 350°F for 25-30 minutes",
+          "Marinate for at least 30 minutes"
+        ],
+        negative: [
+          "Season to taste",
+          "Mix until combined",
+          "Garnish with herbs"
+        ]
+      }
+    },
+    xai: {
+      system: `Analyze recipe steps for timing requirements. For each relevant step:
+1. Extract or infer duration
+2. Create descriptive timer name
+3. Categorize the timing action
+4. Link to specific step
+5. Add helpful context
+
+Return JSON array of timer objects with name, duration, stepIndex, description, and category.`,
+      examples: {
+        positive: [
+          "Cook until golden brown, about 5 minutes",
+          "Let dough rise for 1 hour",
+          "Simmer for 15-20 minutes"
+        ],
+        negative: [
+          "Stir to combine",
+          "Add ingredients gradually",
+          "Serve hot"
+        ]
+      }
+    }
+  }
 };
 
 export function createRecipePrompt(title: string): string {
-  return `Create a recipe for: ${title}`;
+  return `Create a detailed recipe for "${title}". Include:
+1. List of ingredients with precise measurements
+2. Step-by-step instructions
+3. Preparation and cooking times
+4. Difficulty level
+5. Cuisine type
+6. Dietary tags
+7. Suggested timers for critical steps
+
+Format the response as a JSON object with ingredients, instructions, prepTime, cookTime, difficulty, cuisineType, tags, and suggested timers.`;
 }
 
 export function createImprovementPrompt(recipe: string): string {
@@ -136,4 +240,12 @@ export function getPromptForModel(
     default:
       return basePrompt;
   }
+}
+
+export function createTimerAnalysisPrompt(recipe: { instructions: string }) {
+  return {
+    system: prompts.timerAnalysis.system,
+    examples: prompts.timerAnalysis.examples,
+    input: recipe.instructions
+  };
 } 
