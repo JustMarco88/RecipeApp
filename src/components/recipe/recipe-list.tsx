@@ -1,5 +1,6 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { trpc } from "@/utils/trpc"
+import { useCookingStore, type CookingSession } from '@/store/cookingStore'
 import {
   Dialog,
   DialogContent,
@@ -20,9 +21,11 @@ import {
 import { RecipeForm } from "./recipe-form"
 import { CookingView } from "./cooking-view"
 import { useToast } from "@/hooks/use-toast"
-import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle, ChevronRight } from "lucide-react"
+import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle, ChevronRight, TimerIcon } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
-import { type Recipe, type CookingHistory, type RecipeWithHistory } from "@/types/recipe"
+import { type Recipe, type CookingHistory, type RecipeWithHistory, type RecipeTimer } from "@/types/recipe"
+import { RecipeHistory } from './recipe-history'
+import { cn } from "@/lib/utils"
 
 type SortOption = {
   value: string
@@ -91,93 +94,155 @@ interface RecipeCardProps {
 
 function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardProps) {
   const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipe.id)
-  const lastCooked = history?.[0]
-  const cookCount = history?.length || 0
+  const lastCooked = history?.find((h: CookingHistory) => h.completedAt !== null)
+  const cookCount = history?.filter((h: CookingHistory) => h.completedAt !== null).length || 0
+  const { toast } = useToast()
+  const utils = trpc.useContext()
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const { sessions, endSession } = useCookingStore()
+  const activeSession = sessions[recipe.id]
+
+  const handleCloseSession = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowCloseConfirm(true)
+  }
+
+  const confirmCloseSession = () => {
+    endSession(recipe.id)
+    setShowCloseConfirm(false)
+    toast({
+      title: "Session closed",
+      description: "Your cooking session has been closed.",
+    })
+  }
 
   return (
-    <div className="border rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-      <div className="relative aspect-video w-full bg-muted">
-        {recipe.imageUrl ? (
-          <>
-            <img
-              src={recipe.imageUrl}
-              alt={recipe.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                console.error('Image failed to load:', recipe.imageUrl)
-                (e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
-              }}
-            />
-            <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1 text-white text-sm font-medium flex items-center gap-1">
-              <ChefHat className="h-4 w-4" />
-              <span>{cookCount}x</span>
-            </div>
-            {recipe.tags.length > 0 && (
-              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent backdrop-blur-[2px]">
-                <div className="flex flex-wrap gap-1.5">
-                  {recipe.tags.map((tag, index) => (
-                    <button
-                      key={index}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSearch(tag);
-                      }}
-                      className="inline-flex items-center bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-full text-xs transition-colors"
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
+    <>
+      <div className="border rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+        <div className="relative aspect-video w-full bg-muted">
+          {recipe.imageUrl ? (
+            <>
+              <img
+                src={recipe.imageUrl}
+                alt={recipe.title}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.error('Image failed to load:', recipe.imageUrl)
+                  ;(e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
+                }}
+              />
+              <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1 text-white text-sm font-medium flex items-center gap-1">
+                <ChefHat className="h-4 w-4" />
+                <span>{cookCount}x</span>
               </div>
-            )}
-          </>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-            <ImagePlus className="h-12 w-12" />
-          </div>
-        )}
-      </div>
-      
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{recipe.title}</h3>
-          <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={onCook}>
-              <ChefHat className="h-4 w-4" />
-            </Button>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="icon" onClick={onEdit}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Edit Recipe</DialogTitle>
-                  <DialogDescription>
-                    Modify your recipe details
-                  </DialogDescription>
-                </DialogHeader>
-                <RecipeForm recipeId={recipe.id} />
-              </DialogContent>
-            </Dialog>
-            <Button variant="destructive" size="icon" onClick={onDelete}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="text-sm text-muted-foreground space-y-1">
-          <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
-          <p>Difficulty: {recipe.difficulty}</p>
-          {lastCooked?.completedAt && (
-            <p className="text-xs mt-2">
-              Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
-            </p>
+              {recipe.tags.length > 0 && (
+                <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent backdrop-blur-[2px]">
+                  <div className="flex flex-wrap gap-1.5">
+                    {recipe.tags.map((tag, index) => (
+                      <button
+                        key={index}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSearch(tag)
+                        }}
+                        className="inline-flex items-center bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-full text-xs transition-colors"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+              <ImagePlus className="h-12 w-12" />
+            </div>
           )}
         </div>
+
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">{recipe.title}</h3>
+            <div className="flex gap-2">
+              {activeSession?.status === 'paused' && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-orange-500 hover:text-orange-600"
+                  onClick={handleCloseSession}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+              <Button variant="outline" size="icon" onClick={onCook}>
+                <ChefHat className="h-4 w-4" />
+              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="icon" onClick={onEdit}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Edit Recipe</DialogTitle>
+                    <DialogDescription>
+                      Modify your recipe details
+                    </DialogDescription>
+                  </DialogHeader>
+                  <RecipeForm recipeId={recipe.id} />
+                </DialogContent>
+              </Dialog>
+              <Button variant="outline" size="icon" onClick={onDelete}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
+            <p>Difficulty: {recipe.difficulty}</p>
+            {activeSession?.status === 'paused' && (
+              <p className="text-orange-500 flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                Active session
+              </p>
+            )}
+            {lastCooked?.completedAt && (
+              <p className="text-xs mt-2">
+                Last cooked: {formatDistanceToNow(new Date(lastCooked.completedAt))} ago
+              </p>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+
+      <Dialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close cooking session?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close this cooking session? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowCloseConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmCloseSession}
+            >
+              Close Session
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -185,7 +250,7 @@ export function RecipeList() {
   const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery(undefined, {
     refetchOnWindowFocus: true,
   })
-  const { data: activeSessions } = trpc.recipe.getActiveSessions.useQuery()
+  const { sessions, endSession } = useCookingStore()
   const { toast } = useToast()
   const utils = trpc.useContext()
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
@@ -193,6 +258,40 @@ export function RecipeList() {
   const [searchQuery, setSearchQuery] = useState("")
   const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
   const [sortBy, setSortBy] = useState<string>("newest")
+  const [sessionToClose, setSessionToClose] = useState<{ recipeId: string, recipeName: string } | null>(null)
+
+  // Get active and saved sessions
+  const activeSessions = useMemo(() => {
+    if (!recipes) return []
+    
+    return Object.values(sessions)
+      .filter((session): session is CookingSession => 
+        session !== null && 
+        (session.status === 'active' || session.status === 'paused')
+      )
+      .map(session => {
+        const recipe = recipes.find(r => r.id === session.recipeId)
+        if (!recipe) return null
+        return { session, recipe }
+      })
+      .filter((item): item is { session: CookingSession; recipe: Recipe } => item !== null)
+      .sort((a, b) => new Date(b.session.lastActiveAt).getTime() - new Date(a.session.lastActiveAt).getTime())
+  }, [sessions, recipes])
+
+  const handleCloseSession = (recipeId: string, recipeName: string) => {
+    setSessionToClose({ recipeId, recipeName })
+  }
+
+  const confirmCloseSession = () => {
+    if (!sessionToClose) return
+
+    endSession(sessionToClose.recipeId)
+    toast({
+      title: "Session closed",
+      description: "Your cooking session has been closed.",
+    })
+    setSessionToClose(null)
+  }
 
   const deleteRecipe = trpc.recipe.delete.useMutation({
     onSuccess: () => {
@@ -309,6 +408,114 @@ export function RecipeList() {
           </Dialog>
         </div>
 
+        {/* Active Cooking Sessions */}
+        {activeSessions.length > 0 && (
+          <div className="bg-card rounded-lg p-4 border">
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <ChefHat className="h-5 w-5" />
+              Active Cooking Sessions
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {activeSessions.map(({ session, recipe }) => (
+                <div
+                  key={session.recipeId}
+                  className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group cursor-pointer"
+                  onClick={() => setCookingViewRecipe({ recipe, skipResumeDialog: true })}
+                >
+                  <div className="relative h-16 w-16 flex-shrink-0">
+                    {recipe.imageUrl ? (
+                      <img
+                        src={recipe.imageUrl}
+                        alt={recipe.title}
+                        className="h-full w-full object-cover rounded-md"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-muted rounded-md flex items-center justify-center">
+                        <ChefHat className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className={cn(
+                      "absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-background",
+                      session.status === 'active' ? "bg-green-500" : "bg-yellow-500"
+                    )} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium truncate">{recipe.title}</h4>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3" />
+                        <span>
+                          {session.status === 'active' ? 'Started' : 'Last active'}{' '}
+                          {formatDistanceToNow(new Date(session.lastActiveAt))} ago
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <ChevronRight className="h-3 w-3" />
+                        <span>
+                          Step {session.currentStep + 1} of {JSON.parse(recipe.instructions).length}
+                        </span>
+                      </div>
+                      {session.timers.some(t => t.isActive) && (
+                        <div className="flex items-center gap-2 text-orange-500">
+                          <TimerIcon className="h-3 w-3" />
+                          <span>{session.timers.filter(t => t.isActive).length} active timer(s)</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-500 hover:text-orange-600"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCloseSession(recipe.id, recipe.title)
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Close Session Confirmation Dialog */}
+        <Dialog open={!!sessionToClose} onOpenChange={(open) => !open && setSessionToClose(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Close cooking session?</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to close the cooking session for "{sessionToClose?.recipeName}"? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setSessionToClose(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmCloseSession}
+              >
+                Close Session
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Search and Sort */}
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -343,45 +550,6 @@ export function RecipeList() {
           </Select>
         </div>
       </div>
-
-      {/* Active Cooking Sessions */}
-      {activeSessions && activeSessions.length > 0 && (
-        <div className="bg-card rounded-lg p-4 border">
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <ChefHat className="h-5 w-5" />
-            Active Cooking Sessions
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {activeSessions.map((session: ActiveSession) => (
-              <div 
-                key={session.id}
-                className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group cursor-pointer"
-                onClick={() => setCookingViewRecipe({ recipe: session.recipe, skipResumeDialog: true })}
-              >
-                <div className="flex-1">
-                  <h4 className="font-medium">{session.recipe.title}</h4>
-                  <div className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Clock className="h-3 w-3" />
-                    <span>Started {formatDistanceToNow(new Date(session.startedAt))} ago</span>
-                  </div>
-                  {session.currentStep !== undefined && (
-                    <div className="text-sm text-muted-foreground mt-1">
-                      Step {session.currentStep + 1} of {JSON.parse(session.recipe.instructions).length}
-                    </div>
-                  )}
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {sortedAndFilteredRecipes?.length === 0 ? (
         <div className="text-center text-muted-foreground py-8">

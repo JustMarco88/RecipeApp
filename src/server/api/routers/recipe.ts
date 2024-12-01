@@ -6,11 +6,57 @@ import type { Context } from "@/server/api/trpc";
 import * as fs from 'fs';
 import * as path from 'path';
 import { getRecipeSuggestions } from "@/utils/ai";
+import { createTimerAnalysisPrompt } from '@/utils/prompts';
+import { type TimerSuggestion, type RecipeTimer } from '@/types/recipe';
+
+function convertTimersToRecipeFormat(instructions: string[], timers: Record<string, number>): RecipeTimer[] {
+  const timerStepMap: Record<string, number> = {
+    resting: 1,        // "let the dough rest for 30 minutes"
+    fermentation: 3,   // "let it ferment for 8-12 hours"
+    proofing: 6,      // "let it proof for 1-2 hours"
+    baking: 9         // "Bake for 20 minutes"
+  };
+
+  return Object.entries(timers).map(([name, duration], index) => ({
+    id: (index + 1).toString(),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    duration: duration,
+    stepIndex: timerStepMap[name] || 0,
+    description: instructions[timerStepMap[name] || 0],
+    category: "baking"
+  }));
+}
+
+function extractTimersFromInstructions(instructions: string[]): RecipeTimer[] {
+  const timerRegex = /(\d+)(?:-\d+)?\s*(minutes?|mins?|hours?|hrs?)/gi;
+  const timers = instructions.map((instruction, index) => {
+    const matches = Array.from(instruction.matchAll(timerRegex));
+    return matches.map(match => {
+      const duration = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      const seconds = unit.startsWith('hour') ? duration * 3600 : duration * 60;
+      
+      return {
+        id: `${index}-${Math.random().toString(36).substr(2, 9)}`,
+        name: `Timer for step ${index + 1}`,
+        duration: seconds,
+        stepIndex: index,
+        description: instruction,
+        category: 'cooking'
+      };
+    });
+  }).flat();
+
+  return timers;
+}
 
 export const recipeRouter = createTRPCRouter({
   getAll: publicProcedure.query(({ ctx }) => {
     return ctx.db.recipe.findMany({
       orderBy: { updatedAt: "desc" },
+      include: {
+        cookingHistory: true
+      }
     });
   }),
 
@@ -19,18 +65,17 @@ export const recipeRouter = createTRPCRouter({
     .query(({ ctx, input }) => {
       return ctx.db.recipe.findUnique({
         where: { id: input },
+        include: {
+          cookingHistory: true
+        }
       });
     }),
 
   create: publicProcedure
     .input(z.object({
       title: z.string(),
-      ingredients: z.array(z.object({
-        name: z.string(),
-        amount: z.number(),
-        unit: z.string(),
-      })),
-      instructions: z.array(z.string()),
+      ingredients: z.string(),
+      instructions: z.string(),
       prepTime: z.number(),
       cookTime: z.number(),
       servings: z.number(),
@@ -41,16 +86,28 @@ export const recipeRouter = createTRPCRouter({
       nutrition: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { ingredients, instructions, ...rest } = input;
-      return ctx.db.recipe.create({
+      // First create the recipe
+      const recipe = await ctx.db.recipe.create({
         data: {
-          ...rest,
-          ingredients: JSON.stringify(ingredients),
-          instructions: JSON.stringify(instructions),
-          nutrition: rest.nutrition ?? null,
-          imageUrl: rest.imageUrl ?? null,
+          ...input,
+          nutrition: input.nutrition ?? null,
+          imageUrl: input.imageUrl ?? null,
         },
       });
+
+      // Then extract and add timers
+      const instructions = JSON.parse(input.instructions) as string[];
+      const extractedTimers = extractTimersFromInstructions(instructions);
+      
+      // Update the recipe with the extracted timers
+      await ctx.db.recipe.update({
+        where: { id: recipe.id },
+        data: {
+          timers: JSON.stringify(extractedTimers)
+        }
+      });
+
+      return recipe;
     }),
 
   update: publicProcedure
@@ -293,5 +350,96 @@ export const recipeRouter = createTRPCRouter({
         });
       }
       return { imageUrl: result.imageUrl };
+    }),
+
+  analyzeTimers: publicProcedure
+    .input(z.object({
+      recipeId: z.string()
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const recipe = await ctx.db.recipe.findUnique({
+        where: { id: input.recipeId }
+      });
+
+      if (!recipe) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Recipe not found',
+        });
+      }
+
+      try {
+        const prompt = createTimerAnalysisPrompt(recipe);
+        const suggestions = await getRecipeSuggestions(prompt);
+        
+        if (!suggestions.timers || !Array.isArray(suggestions.timers)) {
+          throw new Error('Invalid timer suggestions format');
+        }
+
+        // Update recipe with suggested timers
+        await ctx.db.recipe.update({
+          where: { id: input.recipeId },
+          data: {
+            timers: JSON.stringify(suggestions.timers)
+          }
+        });
+
+        return suggestions.timers as TimerSuggestion[];
+      } catch (error) {
+        console.error('Error analyzing timers:', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to analyze recipe timers',
+        });
+      }
+    }),
+
+  updateTimers: publicProcedure
+    .input(z.object({
+      recipeId: z.string(),
+      timers: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        duration: z.number(),
+        stepIndex: z.number(),
+        description: z.string().optional(),
+        category: z.string().optional()
+      }))
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.recipe.update({
+        where: { id: input.recipeId },
+        data: {
+          timers: JSON.stringify(input.timers)
+        }
+      });
+    }),
+
+  getTimerTemplates: publicProcedure
+    .query(async ({ ctx }) => {
+      return ctx.db.timerTemplate.findMany({
+        orderBy: { category: 'asc' }
+      });
+    }),
+
+  createTimerTemplate: publicProcedure
+    .input(z.object({
+      name: z.string(),
+      duration: z.number(),
+      description: z.string().optional(),
+      category: z.string()
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.timerTemplate.create({
+        data: input
+      });
+    }),
+
+  delete: publicProcedure
+    .input(z.string())
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.recipe.delete({
+        where: { id: input },
+      });
     }),
 }); 
