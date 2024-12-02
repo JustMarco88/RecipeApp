@@ -185,15 +185,15 @@ The application uses a PostgreSQL database with the following main entities:
 
 Use this section to track the implementation progress of improvements:
 
-| Category     | Task                   | Status | Sprint | Notes                                      |
-| ------------ | ---------------------- | ------ | ------ | ------------------------------------------ |
-| Code Quality | ESLint Setup           | ✅     | 1      | Configured with TypeScript and React rules |
-| Code Quality | Prettier Setup         | ✅     | 1      | Added with standard configuration          |
-| Code Quality | Git Hooks (Husky)      | ✅     | 1      | Pre-commit hooks with lint-staged          |
-| Code Quality | TypeScript Strict Mode | ✅     | 1      | Enabled with additional type checks        |
-| Testing      | Jest Configuration     | 📅     | 1      |                                            |
-| Testing      | Initial Unit Tests     | 📅     | 1      |                                            |
-| Testing      | Component Test Setup   | 📅     | 1      |                                            |
+| Category     | Task                   | Status | Sprint | Notes                                         |
+| ------------ | ---------------------- | ------ | ------ | --------------------------------------------- |
+| Code Quality | ESLint Setup           | ✅     | 1      | Configured with TypeScript and React rules    |
+| Code Quality | Prettier Setup         | ✅     | 1      | Added with standard configuration             |
+| Code Quality | Git Hooks (Husky)      | ✅     | 1      | Pre-commit hooks with lint-staged             |
+| Code Quality | TypeScript Strict Mode | ✅     | 1      | Enabled with additional type checks           |
+| Testing      | Jest Configuration     | ✅     | 1      | Set up with Next.js and React Testing Library |
+| Testing      | Initial Unit Tests     | 🔄     | 1      | Started with RecipeWizard tests               |
+| Testing      | Component Test Setup   | ✅     | 1      | Configured with common mocks and utilities    |
 
 Legend:
 
