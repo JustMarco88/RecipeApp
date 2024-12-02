@@ -19,7 +19,17 @@ const customJestConfig = {
     '/node_modules/(?!superjson|@anthropic-ai|@dnd-kit|@radix-ui|class-variance-authority|clsx|tailwind-merge|date-fns)/',
   ],
   transform: {
-    '^.+\\.(js|jsx|ts|tsx|mjs)$': ['babel-jest', { presets: ['next/babel'] }],
+    '^.+\\.(js|jsx|ts|tsx|mjs)$': [
+      'babel-jest',
+      {
+        presets: [
+          'next/babel',
+          '@babel/preset-typescript',
+          ['@babel/preset-react', { runtime: 'automatic' }],
+        ],
+        plugins: ['@babel/plugin-syntax-jsx', '@babel/plugin-syntax-typescript'],
+      },
+    ],
   },
   moduleFileExtensions: ['js', 'jsx', 'ts', 'tsx', 'json', 'node', 'mjs'],
   collectCoverage: true,
@@ -69,6 +79,13 @@ const customJestConfig = {
   ],
   globalSetup: '<rootDir>/jest.global-setup.js',
   globalTeardown: '<rootDir>/jest.global-teardown.js',
+  globals: {
+    'ts-jest': {
+      tsconfig: {
+        jsx: 'react',
+      },
+    },
+  },
 }
 
 module.exports = createJestConfig(customJestConfig)

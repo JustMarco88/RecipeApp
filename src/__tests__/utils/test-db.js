@@ -1,30 +1,54 @@
-import { type Recipe } from '@/types/recipe'
-
 // Mock Prisma client for testing
-const prisma = {
-  cookingHistory: {
-    deleteMany: jest.fn(),
-    create: jest.fn(),
-  },
-  recipe: {
-    deleteMany: jest.fn(),
-    create: jest.fn(),
-  },
-  user: {
-    deleteMany: jest.fn(),
-    create: jest.fn(),
-  },
-  $disconnect: jest.fn(),
+const mockFn = () => {
+  const fn = (...args) => {
+    fn.mock.calls.push(args)
+    return fn.mock.results[fn.mock.calls.length - 1]?.value
+  }
+  fn.mock = {
+    calls: [],
+    results: [],
+    instances: [],
+  }
+  fn.mockReturnValue = value => {
+    fn.mock.results.push({ type: 'return', value })
+    return fn
+  }
+  fn.mockImplementation = impl => {
+    fn.mock.results.push({ type: 'return', value: impl() })
+    return fn
+  }
+  fn.mockReset = () => {
+    fn.mock.calls = []
+    fn.mock.results = []
+    fn.mock.instances = []
+  }
+  return fn
 }
 
-export async function setupTestDb() {
+const prisma = {
+  cookingHistory: {
+    deleteMany: mockFn(),
+    create: mockFn(),
+  },
+  recipe: {
+    deleteMany: mockFn(),
+    create: mockFn(),
+  },
+  user: {
+    deleteMany: mockFn(),
+    create: mockFn(),
+  },
+  $disconnect: mockFn(),
+}
+
+async function setupTestDb() {
   // Clean up existing data
   await prisma.cookingHistory.deleteMany()
   await prisma.recipe.deleteMany()
   await prisma.user.deleteMany()
 }
 
-export async function seedTestDb(recipes: Recipe[]) {
+async function seedTestDb(recipes) {
   // Create test user
   const user = await prisma.user.create({
     data: {
@@ -47,15 +71,15 @@ export async function seedTestDb(recipes: Recipe[]) {
   return { user }
 }
 
-export async function cleanupTestDb() {
+async function cleanupTestDb() {
   await prisma.cookingHistory.deleteMany()
   await prisma.recipe.deleteMany()
   await prisma.user.deleteMany()
   await prisma.$disconnect()
 }
 
-export async function createTestRecipe(data: Partial<Recipe> = {}) {
-  const defaultRecipe: Recipe = {
+async function createTestRecipe(data = {}) {
+  const defaultRecipe = {
     id: 'test-recipe',
     title: 'Test Recipe',
     ingredients: JSON.stringify([{ name: 'Test Ingredient', amount: 1, unit: 'cup' }]),
@@ -80,16 +104,7 @@ export async function createTestRecipe(data: Partial<Recipe> = {}) {
   })
 }
 
-export interface CookingHistoryInput {
-  recipeId: string
-  userId?: string
-  startedAt?: Date
-  completedAt?: Date | null
-  rating?: number | null
-  notes?: string | null
-}
-
-export async function createTestCookingHistory(recipeId: string, data: CookingHistoryInput = {}) {
+async function createTestCookingHistory(recipeId, data = {}) {
   return await prisma.cookingHistory.create({
     data: {
       recipeId,
@@ -102,7 +117,7 @@ export async function createTestCookingHistory(recipeId: string, data: CookingHi
   })
 }
 
-export function generateMockRecipes(count: number): Recipe[] {
+function generateMockRecipes(count) {
   return Array.from({ length: count }, (_, i) => ({
     id: `recipe-${i}`,
     title: `Test Recipe ${i}`,
@@ -129,4 +144,13 @@ export function generateMockRecipes(count: number): Recipe[] {
     createdAt: new Date(Date.now() - i * 86400000),
     updatedAt: new Date(),
   }))
+}
+
+module.exports = {
+  setupTestDb,
+  seedTestDb,
+  cleanupTestDb,
+  createTestRecipe,
+  createTestCookingHistory,
+  generateMockRecipes,
 }

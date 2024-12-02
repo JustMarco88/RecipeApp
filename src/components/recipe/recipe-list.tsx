@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useToast } from '@/components/ui/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,9 +29,11 @@ import {
   ImagePlus,
   Pencil,
 } from 'lucide-react'
-import { type Recipe } from '@/types/recipe'
+import { type Recipe, type CookingHistory, type RecipeWithHistory } from '@/types/recipe'
 import { api } from '@/utils/api'
 import { useCookingStore } from '@/store/cookingStore'
+import { cn } from '@/lib/utils'
+import { formatDistanceToNow } from 'date-fns'
 import { CookingView } from './cooking-view'
 import { RecipeWizard } from './recipe-wizard'
 import { RecipeForm } from './recipe-form'
@@ -231,12 +233,20 @@ export function RecipeList() {
   })
   const { sessions, endSession } = useCookingStore()
   const { toast } = useToast()
+  const utils = api.useContext()
   const [cookingViewRecipe, setCookingViewRecipe] = useState<{
     recipe: Recipe
     skipResumeDialog?: boolean
   } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showWizard, setShowWizard] = useState(false)
+  const [sortBy, setSortBy] = useState<string>(sortOptions[0].label)
+  const [sessionToClose, setSessionToClose] = useState<{
+    recipeId: string
+    recipeName: string
+  } | null>(null)
+  const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
+  const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
 
   // Get active and saved sessions
   const activeSessions = useMemo(() => {
@@ -358,7 +368,7 @@ export function RecipeList() {
         skipResumeDialog={cookingViewRecipe.skipResumeDialog}
         onClose={() => {
           setCookingViewRecipe(null)
-          utils.recipe.getAll.invalidate()
+          void utils.recipe.getAll.invalidate()
         }}
       />
     )
