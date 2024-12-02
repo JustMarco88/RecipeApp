@@ -287,6 +287,11 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
   // Check for existing session and handle session restoration
   useEffect(() => {
     if (recipe && !isActive && !hasShownSessionPrompt) {
+      console.log('Checking for saved session:', {
+        recipeId: recipe.id,
+        savedSession: useCookingStore.getState().sessions[recipe.id],
+        activeSessionId: useCookingStore.getState().activeSessionId
+      })
       // Check if there's a saved session
       const savedSession = useCookingStore.getState().sessions[recipe.id]
       if (savedSession && savedSession.status === 'paused') {
@@ -412,16 +417,31 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
 
   // Navigation handlers
   const goToNextStep = useCallback(() => {
+    console.log('Attempting to go to next step:', { 
+      session, 
+      isActive, 
+      currentStep, 
+      totalSteps: instructions.length,
+      sessionStatus: session?.status,
+      activeSessionId: useCookingStore.getState().activeSessionId
+    })
     if (!session || !isActive || currentStep >= instructions.length - 1) {
-      console.log('Cannot go to next step:', { session, isActive, currentStep, totalSteps: instructions.length })
+      console.log('Cannot go to next step - conditions not met')
       return
     }
     setCurrentStep(currentStep + 1)
   }, [currentStep, instructions.length, setCurrentStep, session, isActive])
 
   const goToPreviousStep = useCallback(() => {
+    console.log('Attempting to go to previous step:', { 
+      session, 
+      isActive, 
+      currentStep,
+      sessionStatus: session?.status,
+      activeSessionId: useCookingStore.getState().activeSessionId
+    })
     if (!session || !isActive || currentStep <= 0) {
-      console.log('Cannot go to previous step:', { session, isActive, currentStep })
+      console.log('Cannot go to previous step - conditions not met')
       return
     }
     setCurrentStep(currentStep - 1)
@@ -497,7 +517,8 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
 
       await updateStep.mutateAsync({
         recipeId: recipe.id,
-        instructions: JSON.stringify(updatedInstructions),
+        stepIndex: currentStep,
+        newInstruction: JSON.stringify(updatedInstructions),
       })
     } catch (error) {
       console.error('Error updating step:', error)
@@ -699,7 +720,7 @@ export function CookingView({ recipe, onClose }: CookingViewProps): JSX.Element 
                         }
                         setIngredients(newIngredients)
                         // Save to session state
-                        toggleIngredient(index, !ing.checked)
+                        toggleIngredient(index, recipe.id)
                       }}
                     >
                       <Checkbox

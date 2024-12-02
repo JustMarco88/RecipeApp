@@ -56,16 +56,24 @@ interface CookingStore {
   setCurrentStep: (step: number) => void
   addNote: (step: number, note: string) => void
   rateStep: (step: number, rating: 'up' | 'down') => void
-  toggleIngredient: (index: number, checked: boolean) => void
+  toggleIngredient: (index: number, recipeId: string) => void
 
   // Timer Management
-  addTimer: (name: string, duration: number) => void
+  addTimer: (timer: { duration: number; name: string }, recipeId: string) => void
   startTimer: (timerId: string) => void
   pauseTimer: (timerId: string) => void
   resetTimer: (timerId: string) => void
   deleteTimer: (timerId: string) => void
   renameTimer: (timerId: string, newName: string) => void
   updateTimerRemaining: (timerId: string, remaining: number) => void
+}
+
+type StorageValue = {
+  state: {
+    sessions: Record<string, CookingSession>
+    activeSessionId: string | null
+  }
+  version: number
 }
 
 export const useCookingStore = create<CookingStore>()(
@@ -75,19 +83,20 @@ export const useCookingStore = create<CookingStore>()(
       activeSessionId: null,
 
       startSession: (recipe) => {
+        console.log('Starting session:', { recipeId: recipe.id })
         set((state) => ({
           sessions: {
             ...state.sessions,
             [recipe.id]: {
               recipeId: recipe.id,
+              startedAt: new Date().toISOString(),
+              lastActiveAt: new Date().toISOString(),
               currentStep: 0,
+              status: 'active',
               notes: {},
               stepRatings: {},
               timers: [],
               checkedIngredients: {},
-              startedAt: new Date().toISOString(),
-              lastActiveAt: new Date().toISOString(),
-              status: 'active',
             },
           },
           activeSessionId: recipe.id,
@@ -95,6 +104,7 @@ export const useCookingStore = create<CookingStore>()(
       },
 
       pauseSession: (recipeId) => {
+        console.log('Pausing session:', { recipeId })
         set((state) => ({
           sessions: {
             ...state.sessions,
@@ -109,6 +119,7 @@ export const useCookingStore = create<CookingStore>()(
       },
 
       resumeSession: (recipeId) => {
+        console.log('Resuming session:', { recipeId })
         set((state) => ({
           sessions: {
             ...state.sessions,
@@ -122,36 +133,31 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      endSession: (recipeId) => {
+      endSession: (recipeId: string) => {
+        console.log('Ending session:', { recipeId })
+        const { sessions } = get()
+        const session = sessions[recipeId]
+        if (!session) return
+
         set((state) => {
-          const { [recipeId]: session, ...remainingSessions } = state.sessions
-          if (session) {
-            // For completed sessions, remove from state
-            if (session.currentStep > 0) {
-              // Session completed - remove it entirely
-              return {
-                sessions: remainingSessions,
-                activeSessionId: null,
-              }
-            } else {
-              // Session abandoned - mark it as abandoned but keep it
-              remainingSessions[recipeId] = {
-                ...session,
-                lastActiveAt: new Date().toISOString(),
-                status: 'abandoned',
-              }
-              return {
-                sessions: remainingSessions,
-                activeSessionId: null,
-              }
-            }
+          const { [recipeId]: _, ...remainingSessions } = state.sessions
+          return {
+            sessions: remainingSessions,
+            activeSessionId: null,
           }
-          return state
         })
+
+        // Save store state to local storage
+        const state = get()
+        localStorage.setItem('cooking-store', JSON.stringify({
+          state,
+          version: 0,
+        }))
       },
 
       setCurrentStep: (step) => {
         const { activeSessionId, sessions } = get()
+        console.log('Setting current step:', { step, activeSessionId, sessionStatus: activeSessionId ? sessions[activeSessionId]?.status : null })
         if (!activeSessionId) return
 
         set((state) => ({
@@ -204,18 +210,19 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      toggleIngredient: (index: number, checked: boolean) => {
-        const { activeSessionId, sessions } = get()
-        if (!activeSessionId) return
+      toggleIngredient: (index: number, recipeId: string) => {
+        const { sessions } = get()
+        const session = sessions[recipeId]
+        if (!session) return
 
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [activeSessionId]: {
-              ...sessions[activeSessionId],
+            [recipeId]: {
+              ...session,
               checkedIngredients: {
-                ...sessions[activeSessionId].checkedIngredients,
-                [index]: checked,
+                ...session.checkedIngredients,
+                [index]: !session.checkedIngredients[index],
               },
               lastActiveAt: new Date().toISOString(),
             },
@@ -223,15 +230,16 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      addTimer: (name, duration) => {
-        const { activeSessionId, sessions } = get()
-        if (!activeSessionId) return
+      addTimer: (timer: { duration: number; name: string }, recipeId: string) => {
+        const { sessions } = get()
+        const session = sessions[recipeId]
+        if (!session) return
 
         const newTimer: Timer = {
           id: crypto.randomUUID(),
-          name,
-          duration,
-          remaining: duration,
+          name: timer.name,
+          duration: timer.duration,
+          remaining: timer.duration,
           isActive: false,
           lastUpdatedAt: new Date().toISOString(),
         }
@@ -239,9 +247,9 @@ export const useCookingStore = create<CookingStore>()(
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [activeSessionId]: {
-              ...sessions[activeSessionId],
-              timers: [...sessions[activeSessionId].timers, newTimer],
+            [recipeId]: {
+              ...session,
+              timers: [...session.timers, newTimer],
               lastActiveAt: new Date().toISOString(),
             },
           },
@@ -381,46 +389,12 @@ export const useCookingStore = create<CookingStore>()(
     {
       name: 'cooking-store',
       storage: {
-        getItem: (name) => {
-          const str = localStorage.getItem(name)
-          if (!str) return null
-          try {
-            const data = JSON.parse(str)
-            // Clean up old sessions and migrate data structure
-            if (data.state && data.state.sessions) {
-              const now = Date.now()
-              const cleanedSessions = Object.entries(data.state.sessions).reduce<{
-                [key: string]: CookingSession
-              }>(
-                (acc, [id, session]: [string, any]) => {
-                  const lastActive = new Date(session.lastActiveAt).getTime()
-                  const isRecent = now - lastActive < 24 * 60 * 60 * 1000
-                  const isValidSession = session.status === 'active' || session.status === 'paused' || session.status === 'completed'
-                  
-                  if (isRecent && isValidSession) {
-                    // Ensure all required fields exist
-                    acc[id] = {
-                      ...session,
-                      checkedIngredients: session.checkedIngredients ?? {},
-                      notes: session.notes ?? {},
-                      stepRatings: session.stepRatings ?? {},
-                      timers: session.timers ?? [],
-                    }
-                  }
-                  return acc
-                },
-                {}
-              )
-              data.state.sessions = cleanedSessions
-            }
-            return data
-          } catch (e) {
-            console.error('Error parsing stored cooking sessions:', e)
-            return null
-          }
+        getItem: (name: string): string | null => localStorage.getItem(name),
+        setItem: (name: string, value: string) => {
+          console.log('Saving cooking store:', { name, value: JSON.parse(value) })
+          localStorage.setItem(name, value)
         },
-        setItem: (name, value) => localStorage.setItem(name, JSON.stringify(value)),
-        removeItem: (name) => localStorage.removeItem(name),
+        removeItem: (name: string) => localStorage.removeItem(name),
       },
       partialize: (state) => ({
         sessions: state.sessions,
