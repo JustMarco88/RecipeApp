@@ -1,9 +1,22 @@
-import { useState, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { ChevronRight, ChevronLeft, X, Wand2, PenLine, Plus, GripVertical, Loader2, Clock, Flame, GaugeCircle, Pencil, ImageIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
+import React, { useState, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  ChevronRight,
+  ChevronLeft,
+  X,
+  Wand2,
+  PenLine,
+  Plus,
+  Loader2,
+  Clock,
+  Flame,
+  GaugeCircle,
+  Pencil,
+  Image as ImageIcon,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   DndContext,
   closestCenter,
@@ -11,7 +24,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
+  type DragEndEvent,
 } from '@dnd-kit/core'
 import {
   arrayMove,
@@ -21,20 +34,30 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { api } from "@/utils/api"
-import { useToast } from "@/components/ui/use-toast"
+import { api } from '@/utils/api'
+import { useToast } from '@/components/ui/use-toast'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { type RecipeSuggestion } from "@/utils/ai"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Checkbox } from "@/components/ui/checkbox"
+} from '@/components/ui/select'
+import { type RecipeSuggestion } from '@/utils/ai'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Checkbox } from '@/components/ui/checkbox'
 
-type WizardStep = 'name' | 'method' | 'manual-ingredients' | 'manual-instructions' | 'manual-details' | 'ai-requirements' | 'ai-review' | 'ai' | 'generating-image' | 'saving'
+type WizardStep =
+  | 'name'
+  | 'method'
+  | 'manual-ingredients'
+  | 'manual-instructions'
+  | 'manual-details'
+  | 'ai-requirements'
+  | 'ai-review'
+  | 'ai'
+  | 'generating-image'
+  | 'saving'
 
 interface Ingredient {
   name: string
@@ -54,15 +77,15 @@ interface SortableInstructionItemProps {
   onDelete: () => void
 }
 
-function SortableInstructionItem({ instruction, index, onEdit, onDelete }: SortableInstructionItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: index.toString() })
+function SortableInstructionItem({
+  instruction,
+  index,
+  onEdit,
+  onDelete,
+}: SortableInstructionItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: index.toString(),
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -75,15 +98,11 @@ function SortableInstructionItem({ instruction, index, onEdit, onDelete }: Sorta
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex gap-4 items-start p-3 rounded-lg hover:bg-muted/50",
-        isDragging && "bg-muted/50 cursor-grabbing"
+        'group flex gap-4 items-start p-3 rounded-lg hover:bg-muted/50',
+        isDragging && 'bg-muted/50 cursor-grabbing'
       )}
     >
-      <button
-        className="flex-none cursor-grab touch-none"
-        {...attributes}
-        {...listeners}
-      >
+      <button className="flex-none cursor-grab touch-none" {...attributes} {...listeners}>
         <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-medium">
           {index + 1}
         </div>
@@ -92,20 +111,10 @@ function SortableInstructionItem({ instruction, index, onEdit, onDelete }: Sorta
         <p>{instruction}</p>
       </div>
       <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onEdit}
-        >
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onEdit}>
           <Pencil className="h-4 w-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-destructive"
-          onClick={onDelete}
-        >
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={onDelete}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -117,21 +126,21 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
   const { toast } = useToast()
   const utils = api.useContext()
   const [step, setStep] = useState<WizardStep>('name')
-  const [recipeName, setRecipeName] = useState("")
+  const [recipeName, setRecipeName] = useState('')
   const [aiRequirements, setAiRequirements] = useState({
     servings: 4,
     dietaryRestrictions: [] as string[],
-    preferences: "",
-    difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard'
+    preferences: '',
+    difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
   })
   const [aiSuggestion, setAiSuggestion] = useState<RecipeSuggestion | null>(null)
   const [editingStep, setEditingStep] = useState<number | null>(null)
-  const [editedStepText, setEditedStepText] = useState("")
+  const [editedStepText, setEditedStepText] = useState('')
   const [editingIngredient, setEditingIngredient] = useState<number | null>(null)
   const [editedIngredient, setEditedIngredient] = useState<Ingredient>({
-    name: "",
+    name: '',
     amount: 0,
-    unit: ""
+    unit: '',
   })
   const [shouldGenerateImage, setShouldGenerateImage] = useState(false)
 
@@ -149,36 +158,36 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
   const createRecipe = api.recipe.create.useMutation({
     onSuccess: () => {
       toast({
-        title: "Success!",
-        description: "Your recipe has been created.",
+        title: 'Success!',
+        description: 'Your recipe has been created.',
       })
       utils.recipe.getAll.invalidate()
       onSuccess?.()
       onClose()
     },
-    onError: (error) => {
+    onError: _err => {
       toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to create recipe. Please try again.',
+        variant: 'destructive',
       })
     },
   })
 
   const getSuggestions = api.recipe.getSuggestions.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       const suggestion = data as RecipeSuggestion
       setAiSuggestion(suggestion)
       setStep('ai-review')
     },
-    onError: (error) => {
+    onError: _err => {
       toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to create recipe. Please try again.',
+        variant: 'destructive',
       })
       setStep('ai-requirements')
-    }
+    },
   })
 
   const handleSubmit = () => {
@@ -210,7 +219,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
   }
 
   const generateImage = api.recipe.generateImage.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       if (!aiSuggestion) return
 
       setStep('saving')
@@ -229,13 +238,13 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
         nutrition: undefined,
       })
     },
-    onError: (error) => {
+    onError: _err => {
       toast({
-        title: "Error",
-        description: "Failed to generate image. Creating recipe without image.",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to generate image. Creating recipe without image.',
+        variant: 'destructive',
       })
-      
+
       if (!aiSuggestion) return
 
       setStep('saving')
@@ -253,21 +262,21 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
         imageUrl: undefined,
         nutrition: undefined,
       })
-    }
+    },
   })
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
-    
+
     if (over && active.id !== over.id) {
       const oldIndex = parseInt(active.id.toString())
       const newIndex = parseInt(over.id.toString())
-      
+
       setAiSuggestion(prev => {
         if (!prev) return prev
         return {
           ...prev,
-          instructions: arrayMove(prev.instructions, oldIndex, newIndex)
+          instructions: arrayMove(prev.instructions, oldIndex, newIndex),
         }
       })
     }
@@ -275,24 +284,24 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
 
   const handleAddInstruction = () => {
     if (!aiSuggestion) return
-    
+
     const newInstructions = [...aiSuggestion.instructions]
-    newInstructions.push("")
+    newInstructions.push('')
     setAiSuggestion({
       ...aiSuggestion,
-      instructions: newInstructions
+      instructions: newInstructions,
     })
     setEditingStep(newInstructions.length - 1)
-    setEditedStepText("")
+    setEditedStepText('')
   }
 
   const handleAddIngredient = () => {
     if (!aiSuggestion) return
-    
+
     setEditedIngredient({
-      name: "",
+      name: '',
       amount: 0,
-      unit: ""
+      unit: '',
     })
     setEditingIngredient(-1)
   }
@@ -307,35 +316,37 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
         <Input
           type="number"
           value={editedIngredient.amount}
-          onChange={(e) => setEditedIngredient(prev => ({
-            ...prev,
-            amount: parseFloat(e.target.value) || 0
-          }))}
+          onChange={e =>
+            setEditedIngredient(prev => ({
+              ...prev,
+              amount: parseFloat(e.target.value) || 0,
+            }))
+          }
           placeholder="Amount"
         />
         <Input
           value={editedIngredient.unit}
-          onChange={(e) => setEditedIngredient(prev => ({
-            ...prev,
-            unit: e.target.value
-          }))}
+          onChange={e =>
+            setEditedIngredient(prev => ({
+              ...prev,
+              unit: e.target.value,
+            }))
+          }
           placeholder="Unit"
         />
         <Input
           value={editedIngredient.name}
-          onChange={(e) => setEditedIngredient(prev => ({
-            ...prev,
-            name: e.target.value
-          }))}
+          onChange={e =>
+            setEditedIngredient(prev => ({
+              ...prev,
+              name: e.target.value,
+            }))
+          }
           placeholder="Ingredient name"
         />
       </div>
       <div className="flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onCancel}
-        >
+        <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
         <Button
@@ -357,24 +368,16 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
     <div className="space-y-2 p-2 bg-muted/50 rounded-lg">
       <Textarea
         value={editedStepText}
-        onChange={(e) => setEditedStepText(e.target.value)}
+        onChange={e => setEditedStepText(e.target.value)}
         className="min-h-[100px] resize-none"
         placeholder="Enter instruction step..."
         autoFocus
       />
       <div className="flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onCancel}
-        >
+        <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          size="sm"
-          onClick={() => onSave(editedStepText)}
-          disabled={!editedStepText.trim()}
-        >
+        <Button size="sm" onClick={() => onSave(editedStepText)} disabled={!editedStepText.trim()}>
           Save
         </Button>
       </div>
@@ -394,7 +397,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
         getSuggestions.mutate({
           title: recipeName,
           isImprovement: false,
-          requirements: aiRequirements
+          requirements: aiRequirements,
         })
         break
     }
@@ -414,14 +417,28 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
     }
   }
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      if (step === 'name' && recipeName.trim()) {
-        goToNextStep()
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        if (step === 'name' && recipeName.trim()) {
+          goToNextStep()
+        }
       }
-    }
-  }, [step, recipeName, goToNextStep])
+    },
+    [step, recipeName, goToNextStep]
+  )
+
+  const _handleError = useCallback(
+    (_err: unknown) => {
+      toast({
+        title: 'Error',
+        description: 'Failed to create recipe. Please try again.',
+        variant: 'destructive',
+      })
+    },
+    [toast]
+  )
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">
@@ -432,14 +449,10 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
               <div>
                 <h2 className="text-2xl font-semibold">Create New Recipe</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Let's start with a name for your recipe
+                  Let&apos;s start with a name for your recipe
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-              >
+              <Button variant="ghost" size="icon" onClick={onClose} data-testid="close-button">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -452,7 +465,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                 <Input
                   placeholder="Enter recipe name..."
                   value={recipeName}
-                  onChange={(e) => setRecipeName(e.target.value)}
+                  onChange={e => setRecipeName(e.target.value)}
                   onKeyDown={handleKeyDown}
                   className="text-lg"
                   autoFocus
@@ -479,11 +492,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                   How would you like to create this recipe?
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-              >
+              <Button variant="ghost" size="icon" onClick={onClose} data-testid="close-button">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -491,16 +500,16 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
             <div className="grid md:grid-cols-2 gap-4">
               <button
                 className={cn(
-                  "bg-card hover:bg-accent rounded-lg p-6 text-left transition-colors",
-                  "group relative overflow-hidden"
+                  'bg-card hover:bg-accent rounded-lg p-6 text-left transition-colors',
+                  'group relative overflow-hidden'
                 )}
                 onClick={() => setStep('manual-ingredients')}
               >
                 <div className="relative z-10">
                   <PenLine className="h-8 w-8 mb-4 text-primary" />
-                  <h3 className="text-lg font-medium mb-2">I'll write it myself</h3>
+                  <h3 className="text-lg font-medium mb-2">I&apos;ll write it myself</h3>
                   <p className="text-sm text-muted-foreground">
-                    Create your recipe step by step, with full control over ingredients and instructions.
+                    Let&apos;s create your recipe step by step
                   </p>
                 </div>
                 <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -508,8 +517,8 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
 
               <button
                 className={cn(
-                  "bg-card hover:bg-accent rounded-lg p-6 text-left transition-colors",
-                  "group relative overflow-hidden"
+                  'bg-card hover:bg-accent rounded-lg p-6 text-left transition-colors',
+                  'group relative overflow-hidden'
                 )}
                 onClick={() => setStep('ai-requirements')}
               >
@@ -532,14 +541,10 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
               <div>
                 <h2 className="text-2xl font-semibold">Create {recipeName}</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Let's customize your recipe
+                  Let&apos;s customize your recipe
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-              >
+              <Button variant="ghost" size="icon" onClick={onClose} data-testid="close-button">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -552,10 +557,12 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                     <Input
                       type="number"
                       value={aiRequirements.servings}
-                      onChange={(e) => setAiRequirements(prev => ({
-                        ...prev,
-                        servings: parseInt(e.target.value) || 4
-                      }))}
+                      onChange={e =>
+                        setAiRequirements(prev => ({
+                          ...prev,
+                          servings: parseInt(e.target.value) || 4,
+                        }))
+                      }
                       min={1}
                       max={20}
                     />
@@ -564,11 +571,14 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Dietary Restrictions</label>
                     <Select
-                      value={aiRequirements.dietaryRestrictions.join(",")}
-                      onValueChange={(value) => setAiRequirements(prev => ({
-                        ...prev,
-                        dietaryRestrictions: value.split(",").filter(Boolean)
-                      }))}>
+                      value={aiRequirements.dietaryRestrictions.join(',')}
+                      onValueChange={value =>
+                        setAiRequirements(prev => ({
+                          ...prev,
+                          dietaryRestrictions: value.split(',').filter(Boolean),
+                        }))
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select restrictions..." />
                       </SelectTrigger>
@@ -587,10 +597,12 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                     <Textarea
                       placeholder="Any specific preferences? (e.g., 'Extra moist', 'Less sugar', 'Traditional style')"
                       value={aiRequirements.preferences}
-                      onChange={(e) => setAiRequirements(prev => ({
-                        ...prev,
-                        preferences: e.target.value
-                      }))}
+                      onChange={e =>
+                        setAiRequirements(prev => ({
+                          ...prev,
+                          preferences: e.target.value,
+                        }))
+                      }
                     />
                   </div>
 
@@ -598,10 +610,13 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                     <label className="text-sm font-medium">Difficulty Level</label>
                     <Select
                       value={aiRequirements.difficulty}
-                      onValueChange={(value: 'Easy' | 'Medium' | 'Hard') => setAiRequirements(prev => ({
-                        ...prev,
-                        difficulty: value
-                      }))}>
+                      onValueChange={(value: 'Easy' | 'Medium' | 'Hard') =>
+                        setAiRequirements(prev => ({
+                          ...prev,
+                          difficulty: value,
+                        }))
+                      }
+                    >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -615,18 +630,12 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                 </div>
 
                 <div className="flex justify-between pt-4">
-                  <Button
-                    variant="outline"
-                    onClick={goToPreviousStep}
-                  >
+                  <Button variant="outline" onClick={goToPreviousStep}>
                     <ChevronLeft className="h-4 w-4 mr-2" />
                     Back
                   </Button>
-                  <Button
-                    onClick={goToNextStep}
-                    disabled={getSuggestions.isLoading}
-                  >
-                    {getSuggestions.isLoading ? "Generating..." : "Generate Recipe"}
+                  <Button onClick={goToNextStep} disabled={getSuggestions.isLoading}>
+                    {getSuggestions.isLoading ? 'Generating...' : 'Generate Recipe'}
                     {!getSuggestions.isLoading && <ChevronRight className="h-4 w-4 ml-2" />}
                   </Button>
                 </div>
@@ -641,11 +650,10 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
               <div className="max-w-xl mx-auto space-y-6">
                 <div className="text-center">
                   <Wand2 className="h-12 w-12 mx-auto mb-4 text-primary" />
-                  <h3 className="text-lg font-medium">
-                    Generating recipe for {recipeName}
-                  </h3>
+                  <h3 className="text-lg font-medium">Generating recipe for {recipeName}</h3>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Our AI is creating a detailed recipe based on your preferences. This might take a moment...
+                    Our AI is creating a detailed recipe based on your preferences. This might take
+                    a moment...
                   </p>
                 </div>
                 <div className="flex justify-center">
@@ -662,11 +670,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
             <div className="border-b">
               <div className="container py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={goToPreviousStep}
-                  >
+                  <Button variant="ghost" size="icon" onClick={goToPreviousStep}>
                     <ChevronLeft className="h-5 w-5" />
                   </Button>
                   <div>
@@ -688,7 +692,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                     <Checkbox
                       id="generate-image"
                       checked={shouldGenerateImage}
-                      onCheckedChange={(checked) => setShouldGenerateImage(checked as boolean)}
+                      onCheckedChange={checked => setShouldGenerateImage(checked as boolean)}
                     />
                     <label
                       htmlFor="generate-image"
@@ -698,18 +702,11 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                       Generate AI image
                     </label>
                   </div>
-                  <Button
-                    onClick={handleSubmit}
-                    className="gap-2"
-                  >
+                  <Button onClick={handleSubmit} className="gap-2">
                     Create Recipe
                     <ChevronRight className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onClose}
-                  >
+                  <Button variant="ghost" size="icon" onClick={onClose} data-testid="close-button">
                     <X className="h-5 w-5" />
                   </Button>
                 </div>
@@ -746,7 +743,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                             {editingIngredient === index ? (
                               renderIngredientEditForm(
                                 index,
-                                (ingredient) => {
+                                ingredient => {
                                   const newIngredients = [...aiSuggestion.ingredients]
                                   if (editingIngredient === -1) {
                                     newIngredients.push(ingredient)
@@ -755,7 +752,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                                   }
                                   setAiSuggestion({
                                     ...aiSuggestion,
-                                    ingredients: newIngredients
+                                    ingredients: newIngredients,
                                   })
                                   setEditingIngredient(null)
                                 },
@@ -787,7 +784,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                                       newIngredients.splice(index, 1)
                                       setAiSuggestion({
                                         ...aiSuggestion,
-                                        ingredients: newIngredients
+                                        ingredients: newIngredients,
                                       })
                                     }}
                                   >
@@ -798,19 +795,18 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                             )}
                           </div>
                         ))}
-                        {editingIngredient === -1 && (
+                        {editingIngredient === -1 &&
                           renderIngredientEditForm(
                             -1,
-                            (ingredient) => {
+                            ingredient => {
                               setAiSuggestion({
                                 ...aiSuggestion,
-                                ingredients: [...aiSuggestion.ingredients, ingredient]
+                                ingredients: [...aiSuggestion.ingredients, ingredient],
                               })
                               setEditingIngredient(null)
                             },
                             () => setEditingIngredient(null)
-                          )
-                        )}
+                          )}
                       </div>
                     </ScrollArea>
                   </div>
@@ -845,12 +841,12 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                           strategy={verticalListSortingStrategy}
                         >
                           <div className="space-y-4 pr-4">
-                            {aiSuggestion.instructions.map((instruction, index) => (
+                            {aiSuggestion.instructions.map((instruction, index) =>
                               editingStep === index ? (
                                 <div key={index}>
                                   {renderInstructionEditForm(
                                     index,
-                                    (text) => {
+                                    text => {
                                       const newInstructions = [...aiSuggestion.instructions]
                                       if (editingStep === -1) {
                                         newInstructions.push(text)
@@ -859,7 +855,7 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                                       }
                                       setAiSuggestion({
                                         ...aiSuggestion,
-                                        instructions: newInstructions
+                                        instructions: newInstructions,
                                       })
                                       setEditingStep(null)
                                     },
@@ -880,12 +876,12 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
                                     newInstructions.splice(index, 1)
                                     setAiSuggestion({
                                       ...aiSuggestion,
-                                      instructions: newInstructions
+                                      instructions: newInstructions,
                                     })
                                   }}
                                 />
                               )
-                            ))}
+                            )}
                           </div>
                         </SortableContext>
                       </DndContext>
@@ -903,11 +899,10 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
               <div className="max-w-xl mx-auto space-y-6">
                 <div className="text-center">
                   <Wand2 className="h-12 w-12 mx-auto mb-4 text-primary" />
-                  <h3 className="text-lg font-medium">
-                    Generating image for {recipeName}
-                  </h3>
+                  <h3 className="text-lg font-medium">Generating image for {recipeName}</h3>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Our AI is creating a beautiful image for your recipe. This might take a moment...
+                    Our AI is creating a beautiful image for your recipe. This might take a
+                    moment...
                   </p>
                 </div>
                 <div className="flex justify-center">
@@ -924,11 +919,9 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
               <div className="max-w-xl mx-auto space-y-6">
                 <div className="text-center">
                   <Loader2 className="h-12 w-12 mx-auto mb-4 text-primary animate-spin" />
-                  <h3 className="text-lg font-medium">
-                    Saving your recipe
-                  </h3>
+                  <h3 className="text-lg font-medium">Saving your recipe</h3>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Almost done! We're saving your recipe...
+                    Almost done! We&apos;re saving your recipe...
                   </p>
                 </div>
               </div>
@@ -938,4 +931,4 @@ export function RecipeWizard({ onClose, onSuccess }: RecipeWizardProps) {
       </div>
     </div>
   )
-} 
+}
