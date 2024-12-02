@@ -1,104 +1,88 @@
-import { useState, useMemo } from "react"
-import { trpc } from "@/utils/trpc"
-import { useCookingStore, type CookingSession } from '@/store/cookingStore'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogDescription,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { useState } from 'react'
+import { useToast } from '@/components/ui/use-toast'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { RecipeForm } from "./recipe-form"
-import { CookingView } from "./cooking-view"
-import { useToast } from "@/hooks/use-toast"
-import { Pencil, Trash2, ChefHat, History, Search, X, Plus, ImagePlus, Clock, Flame, GaugeCircle, ChevronRight, TimerIcon } from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
-import { type Recipe, type CookingHistory, type RecipeWithHistory, type RecipeTimer } from "@/types/recipe"
-import { RecipeHistory } from './recipe-history'
-import { cn } from "@/lib/utils"
-import { RecipeWizard } from "./recipe-wizard"
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  Clock,
+  ChefHat,
+  Trash2,
+  Plus,
+  Search,
+  X,
+  ChevronRight,
+  TimerIcon,
+  ImagePlus,
+  Pencil,
+} from 'lucide-react'
+import { type Recipe } from '@/types/recipe'
+import { api } from '@/utils/api'
+import { useCookingStore } from '@/store/cookingStore'
+import { CookingView } from './cooking-view'
+import { RecipeWizard } from './recipe-wizard'
+import { RecipeForm } from './recipe-form'
 
 type SortOption = {
-  value: string
   label: string
-  sortFn: (a: RecipeWithHistory, b: RecipeWithHistory) => number
+  sortFn: (a: Recipe, b: Recipe) => number
 }
 
 const sortOptions: SortOption[] = [
   {
-    value: "newest",
-    label: "Newly Added",
-    sortFn: (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    label: 'Recently Added',
+    sortFn: (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
   },
   {
-    value: "lastCooked",
-    label: "Recently Cooked",
+    label: 'Recently Cooked',
     sortFn: (a, b) => {
       const aLastCooked = a.cookingHistory?.[0]?.completedAt
       const bLastCooked = b.cookingHistory?.[0]?.completedAt
       if (!aLastCooked && !bLastCooked) return 0
       if (!aLastCooked) return 1
       if (!bLastCooked) return -1
-      return new Date(bLastCooked).getTime() - new Date(aLastCooked).getTime()
+      return bLastCooked.getTime() - aLastCooked.getTime()
     },
   },
   {
-    value: "leastCooked",
-    label: "Least Recently Cooked",
+    label: 'Least Recently Cooked',
     sortFn: (a, b) => {
       const aLastCooked = a.cookingHistory?.[0]?.completedAt
       const bLastCooked = b.cookingHistory?.[0]?.completedAt
       if (!aLastCooked && !bLastCooked) return 0
       if (!aLastCooked) return -1
       if (!bLastCooked) return 1
-      return new Date(aLastCooked).getTime() - new Date(bLastCooked).getTime()
+      return aLastCooked.getTime() - bLastCooked.getTime()
     },
-  },
-  {
-    value: "mostCooked",
-    label: "Most Cooked",
-    sortFn: (a, b) => (b.cookingHistory?.length || 0) - (a.cookingHistory?.length || 0),
-  },
-  {
-    value: "quickest",
-    label: "Quickest to Make",
-    sortFn: (a, b) => (a.prepTime + a.cookTime) - (b.prepTime + b.cookTime),
-  },
-  {
-    value: "alphabetical",
-    label: "Alphabetical",
-    sortFn: (a, b) => a.title.localeCompare(b.title),
   },
 ]
 
-interface ActiveSession extends CookingHistory {
-  recipe: Recipe;
-}
-
 interface RecipeCardProps {
   recipe: Recipe
-  onEdit: () => void
-  onDelete: () => void
-  onCook: () => void
+  onEdit: (recipe: Recipe) => void
+  onDelete: (recipe: Recipe) => void
+  onCook: (recipe: Recipe) => void
   onSearch: (query: string) => void
 }
 
 function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardProps) {
-  const { data: history } = trpc.recipe.getCookingHistory.useQuery(recipe.id)
+  const { data: history } = api.recipe.getCookingHistory.useQuery(recipe.id)
   const lastCooked = history?.find((h: CookingHistory) => h.completedAt !== null)
   const cookCount = history?.filter((h: CookingHistory) => h.completedAt !== null).length || 0
   const { toast } = useToast()
-  const utils = trpc.useContext()
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const { sessions, endSession } = useCookingStore()
   const activeSession = sessions[recipe.id]
@@ -112,8 +96,8 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
     endSession(recipe.id)
     setShowCloseConfirm(false)
     toast({
-      title: "Session closed",
-      description: "Your cooking session has been closed.",
+      title: 'Session closed',
+      description: 'Your cooking session has been closed.',
     })
   }
 
@@ -127,7 +111,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
                 src={recipe.imageUrl}
                 alt={recipe.title}
                 className="w-full h-full object-cover"
-                onError={(e) => {
+                onError={e => {
                   console.error('Image failed to load:', recipe.imageUrl)
                   ;(e.target as HTMLImageElement).src = '/placeholder-recipe.jpg'
                 }}
@@ -139,14 +123,14 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
               {recipe.tags.length > 0 && (
                 <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent backdrop-blur-[2px]">
                   <div className="flex flex-wrap gap-1.5">
-                    {recipe.tags.map((tag, index) => (
+                    {recipe.tags.map((tag: string, index: number) => (
                       <button
                         key={index}
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation()
                           onSearch(tag)
                         }}
-                        className="inline-flex items-center bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-full text-xs transition-colors"
+                        className="px-2 py-0.5 text-xs rounded-full bg-accent/10 hover:bg-accent/20 transition-colors"
                       >
                         {tag}
                       </button>
@@ -188,9 +172,7 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
                 <DialogContent className="max-h-[90vh] max-w-[90vw] w-[800px] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Edit Recipe</DialogTitle>
-                    <DialogDescription>
-                      Modify your recipe details
-                    </DialogDescription>
+                    <DialogDescription>Modify your recipe details</DialogDescription>
                   </DialogHeader>
                   <RecipeForm recipeId={recipe.id} />
                 </DialogContent>
@@ -202,7 +184,9 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
           </div>
 
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min</p>
+            <p>
+              Prep: {recipe.prepTime}min • Cook: {recipe.cookTime}min
+            </p>
             <p>Difficulty: {recipe.difficulty}</p>
             {activeSession?.status === 'paused' && (
               <p className="text-orange-500 flex items-center gap-1">
@@ -228,16 +212,10 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowCloseConfirm(false)}
-            >
+            <Button variant="outline" onClick={() => setShowCloseConfirm(false)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmCloseSession}
-            >
+            <Button variant="destructive" onClick={confirmCloseSession}>
               Close Session
             </Button>
           </div>
@@ -248,36 +226,37 @@ function RecipeCard({ recipe, onEdit, onDelete, onCook, onSearch }: RecipeCardPr
 }
 
 export function RecipeList() {
-  const { data: recipes, isLoading } = trpc.recipe.getAll.useQuery(undefined, {
+  const { data: recipes, isLoading } = api.recipe.getAll.useQuery(undefined, {
     refetchOnWindowFocus: true,
   })
   const { sessions, endSession } = useCookingStore()
   const { toast } = useToast()
-  const utils = trpc.useContext()
-  const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null)
-  const [cookingViewRecipe, setCookingViewRecipe] = useState<{recipe: Recipe, skipResumeDialog?: boolean} | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [recipeToDelete, setRecipeToDelete] = useState<Recipe | null>(null)
-  const [sortBy, setSortBy] = useState<string>("newest")
-  const [sessionToClose, setSessionToClose] = useState<{ recipeId: string, recipeName: string } | null>(null)
-  const [showNewRecipeWizard, setShowNewRecipeWizard] = useState(false)
+  const [cookingViewRecipe, setCookingViewRecipe] = useState<{
+    recipe: Recipe
+    skipResumeDialog?: boolean
+  } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showWizard, setShowWizard] = useState(false)
 
   // Get active and saved sessions
   const activeSessions = useMemo(() => {
     if (!recipes) return []
-    
+
     return Object.values(sessions)
-      .filter((session): session is CookingSession => 
-        session !== null && 
-        (session.status === 'active' || session.status === 'paused')
+      .filter(
+        (session): session is CookingSession =>
+          session !== null && (session.status === 'active' || session.status === 'paused')
       )
       .map(session => {
-        const recipe = recipes.find(r => r.id === session.recipeId)
+        const recipe = recipes.find((r: Recipe) => r.id === session.recipeId)
         if (!recipe) return null
         return { session, recipe }
       })
       .filter((item): item is { session: CookingSession; recipe: Recipe } => item !== null)
-      .sort((a, b) => new Date(b.session.lastActiveAt).getTime() - new Date(a.session.lastActiveAt).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.session.lastActiveAt).getTime() - new Date(a.session.lastActiveAt).getTime()
+      )
   }, [sessions, recipes])
 
   const handleCloseSession = (recipeId: string, recipeName: string) => {
@@ -289,26 +268,26 @@ export function RecipeList() {
 
     endSession(sessionToClose.recipeId)
     toast({
-      title: "Session closed",
-      description: "Your cooking session has been closed.",
+      title: 'Session closed',
+      description: 'Your cooking session has been closed.',
     })
     setSessionToClose(null)
   }
 
-  const deleteRecipe = trpc.recipe.delete.useMutation({
+  const deleteRecipe = api.recipe.delete.useMutation({
     onSuccess: () => {
       utils.recipe.getAll.invalidate()
       toast({
-        title: "Success",
-        description: "Recipe deleted successfully",
+        title: 'Success',
+        description: 'Recipe deleted successfully',
       })
       setRecipeToDelete(null)
     },
     onError: () => {
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to delete recipe",
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to delete recipe',
       })
     },
   })
@@ -327,9 +306,7 @@ export function RecipeList() {
     try {
       const ingredients = JSON.parse(recipe.ingredients)
       return searchTerms.every(term =>
-        ingredients.some((ing: { name: string }) =>
-          ing.name.toLowerCase().includes(term)
-        )
+        ingredients.some((ing: { name: string }) => ing.name.toLowerCase().includes(term))
       )
     } catch (error) {
       console.error('Error parsing ingredients:', error)
@@ -341,9 +318,7 @@ export function RecipeList() {
     try {
       const instructions = JSON.parse(recipe.instructions)
       return searchTerms.every(term =>
-        instructions.some((instruction: string) =>
-          instruction.toLowerCase().includes(term)
-        )
+        instructions.some((instruction: string) => instruction.toLowerCase().includes(term))
       )
     } catch (error) {
       console.error('Error parsing instructions:', error)
@@ -353,17 +328,20 @@ export function RecipeList() {
 
   const sortedAndFilteredRecipes = (recipes as RecipeWithHistory[] | undefined)
     ?.filter(recipe => {
-      if (!searchQuery.trim()) return true;
+      if (!searchQuery.trim()) return true
       const searchTerms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
       return (
         searchTerms.every(term => recipe.title.toLowerCase().includes(term)) ||
         searchInIngredients(recipe, searchTerms) ||
         searchInInstructions(recipe, searchTerms) ||
-        (recipe.cuisineType && searchTerms.every(term => recipe.cuisineType?.toLowerCase().includes(term))) ||
-        searchTerms.every(term => recipe.tags.some(tag => tag.toLowerCase().includes(term)))
+        (recipe.cuisineType &&
+          searchTerms.every(term => recipe.cuisineType?.toLowerCase().includes(term))) ||
+        searchTerms.every(term =>
+          recipe.tags.some((tag: string) => tag.toLowerCase().includes(term))
+        )
       )
     })
-    .sort(sortOptions.find(option => option.value === sortBy)?.sortFn)
+    .sort(sortOptions.find(option => option.label === sortBy)?.sortFn)
 
   if (isLoading) {
     return <div>Loading recipes...</div>
@@ -391,18 +369,14 @@ export function RecipeList() {
       <div className="flex flex-col gap-4">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold">My Recipes</h2>
-          <Button onClick={() => setShowNewRecipeWizard(true)}>
+          <Button onClick={() => setShowWizard(true)}>
             <Plus className="h-4 w-4 mr-2" />
             New Recipe
           </Button>
         </div>
 
         {/* Show wizard instead of dialog */}
-        {showNewRecipeWizard && (
-          <RecipeWizard
-            onClose={() => setShowNewRecipeWizard(false)}
-          />
-        )}
+        {showWizard && <RecipeWizard onClose={() => setShowWizard(false)} />}
 
         {/* Active Cooking Sessions */}
         {activeSessions.length > 0 && (
@@ -430,10 +404,12 @@ export function RecipeList() {
                         <ChefHat className="h-6 w-6 text-muted-foreground" />
                       </div>
                     )}
-                    <div className={cn(
-                      "absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-background",
-                      session.status === 'active' ? "bg-green-500" : "bg-yellow-500"
-                    )} />
+                    <div
+                      className={cn(
+                        'absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-background',
+                        session.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
+                      )}
+                    />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium truncate">{recipe.title}</h4>
@@ -454,7 +430,9 @@ export function RecipeList() {
                       {session.timers.some(t => t.isActive) && (
                         <div className="flex items-center gap-2 text-orange-500">
                           <TimerIcon className="h-3 w-3" />
-                          <span>{session.timers.filter(t => t.isActive).length} active timer(s)</span>
+                          <span>
+                            {session.timers.filter(t => t.isActive).length} active timer(s)
+                          </span>
                         </div>
                       )}
                     </div>
@@ -464,7 +442,7 @@ export function RecipeList() {
                       variant="ghost"
                       size="icon"
                       className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-500 hover:text-orange-600"
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation()
                         handleCloseSession(recipe.id, recipe.title)
                       }}
@@ -486,25 +464,20 @@ export function RecipeList() {
         )}
 
         {/* Close Session Confirmation Dialog */}
-        <Dialog open={!!sessionToClose} onOpenChange={(open) => !open && setSessionToClose(null)}>
+        <Dialog open={!!sessionToClose} onOpenChange={open => !open && setSessionToClose(null)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Close cooking session?</DialogTitle>
               <DialogDescription>
-                Are you sure you want to close the cooking session for "{sessionToClose?.recipeName}"? This action cannot be undone.
+                Are you sure you want to close the cooking session for "{sessionToClose?.recipeName}
+                "? This action cannot be undone.
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setSessionToClose(null)}
-              >
+              <Button variant="outline" onClick={() => setSessionToClose(null)}>
                 Cancel
               </Button>
-              <Button
-                variant="destructive"
-                onClick={confirmCloseSession}
-              >
+              <Button variant="destructive" onClick={confirmCloseSession}>
                 Close Session
               </Button>
             </div>
@@ -519,12 +492,12 @@ export function RecipeList() {
               <Input
                 placeholder="Search recipes..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2"
                 >
                   <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
@@ -537,8 +510,8 @@ export function RecipeList() {
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
             <SelectContent>
-              {sortOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
+              {sortOptions.map(option => (
+                <SelectItem key={option.label} value={option.label}>
                   {option.label}
                 </SelectItem>
               ))}
@@ -553,7 +526,7 @@ export function RecipeList() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sortedAndFilteredRecipes?.map((recipe) => (
+          {sortedAndFilteredRecipes?.map(recipe => (
             <RecipeCard
               key={recipe.id}
               recipe={recipe}
@@ -566,25 +539,20 @@ export function RecipeList() {
         </div>
       )}
 
-      <Dialog open={!!recipeToDelete} onOpenChange={(open) => !open && setRecipeToDelete(null)}>
+      <Dialog open={!!recipeToDelete} onOpenChange={open => !open && setRecipeToDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Recipe</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{recipeToDelete?.title}"? This action cannot be undone.
+              Are you sure you want to delete "{recipeToDelete?.title}"? This action cannot be
+              undone.
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-3 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setRecipeToDelete(null)}
-            >
+            <Button variant="outline" onClick={() => setRecipeToDelete(null)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDelete}
-            >
+            <Button variant="destructive" onClick={confirmDelete}>
               Delete Recipe
             </Button>
           </div>

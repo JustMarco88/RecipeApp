@@ -10,7 +10,11 @@ const customJestConfig = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
+  testMatch: [
+    '**/__tests__/**/*.test.[jt]s?(x)',
+    '**/__tests__/**/*.spec.[jt]s?(x)',
+    '**/__tests__/**/*.perf.[jt]s?(x)',
+  ],
   transformIgnorePatterns: [
     '/node_modules/(?!superjson|@anthropic-ai|@dnd-kit|@radix-ui|class-variance-authority|clsx|tailwind-merge|date-fns)/',
   ],
@@ -43,6 +47,28 @@ const customJestConfig = {
       statements: 0,
     },
   },
+  testTimeout: 30000,
+  maxWorkers: 4,
+  projects: [
+    {
+      displayName: 'Unit Tests',
+      testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
+      testPathIgnorePatterns: ['/node_modules/', '/__tests__/api/', '/__tests__/performance/'],
+    },
+    {
+      displayName: 'API Tests',
+      testMatch: ['**/__tests__/api/**/*.test.[jt]s?(x)'],
+      testEnvironment: 'node',
+    },
+    {
+      displayName: 'Performance Tests',
+      testMatch: ['**/__tests__/performance/**/*.test.[jt]s?(x)'],
+      testEnvironment: 'node',
+      maxWorkers: 1,
+    },
+  ],
+  globalSetup: '<rootDir>/jest.global-setup.js',
+  globalTeardown: '<rootDir>/jest.global-teardown.js',
 }
 
 module.exports = createJestConfig(customJestConfig)

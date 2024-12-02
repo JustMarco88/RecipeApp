@@ -1,48 +1,46 @@
-import { screen, waitFor } from '@testing-library/react'
-import { RecipeList } from '@/components/recipe/recipe-list'
+import React from 'react'
+import { screen } from '@testing-library/react'
 import { renderWithProviders } from '../../utils/test-utils'
 import { type Recipe } from '@/types/recipe'
+import { RecipeList } from '@/components/recipe/recipe-list'
 
+// Mock recipe data
 const mockRecipes: Recipe[] = [
   {
     id: '1',
-    name: 'Test Recipe 1',
-    ingredients: ['ingredient 1', 'ingredient 2'],
-    instructions: ['step 1', 'step 2'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    userId: 'user1',
-    servings: 4,
+    title: 'Test Recipe 1',
+    ingredients: JSON.stringify(['ingredient 1', 'ingredient 2']),
+    instructions: JSON.stringify(['step 1', 'step 2']),
     prepTime: 30,
     cookTime: 45,
-    totalTime: 75,
-    difficulty: 'medium',
-    cuisine: 'Italian',
+    servings: 4,
+    difficulty: 'Medium',
+    cuisineType: 'Italian',
     tags: ['pasta', 'dinner'],
-    notes: 'Test notes',
     imageUrl: null,
-    isPublic: false,
-    rating: 4,
+    nutrition: null,
+    timers: JSON.stringify([]),
+    userId: 'user1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
   },
   {
     id: '2',
-    name: 'Test Recipe 2',
-    ingredients: ['ingredient 3', 'ingredient 4'],
-    instructions: ['step 3', 'step 4'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    userId: 'user1',
-    servings: 2,
+    title: 'Test Recipe 2',
+    ingredients: JSON.stringify(['ingredient 3', 'ingredient 4']),
+    instructions: JSON.stringify(['step 3', 'step 4']),
     prepTime: 15,
     cookTime: 20,
-    totalTime: 35,
-    difficulty: 'easy',
-    cuisine: 'Mexican',
+    servings: 2,
+    difficulty: 'Easy',
+    cuisineType: 'Mexican',
     tags: ['quick', 'lunch'],
-    notes: 'More test notes',
     imageUrl: null,
-    isPublic: false,
-    rating: 5,
+    nutrition: null,
+    timers: JSON.stringify([]),
+    userId: 'user1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
   },
 ]
 
@@ -71,91 +69,85 @@ jest.mock('@/utils/api', () => ({
 describe('RecipeList', () => {
   describe('Loading State', () => {
     it('shows loading state', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('Loading recipes...')
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('Loading recipes...')).toBeInTheDocument()
     })
   })
 
   describe('Loaded State', () => {
     it('shows the header', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('My Recipes')
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('My Recipes')).toBeInTheDocument()
     })
 
     it('shows the new recipe button', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('New Recipe')
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('New Recipe')).toBeInTheDocument()
     })
 
     it('shows recipe cards', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('Test Recipe 1')
-      await expectToBeInDocument('Test Recipe 2')
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('Test Recipe 1')).toBeInTheDocument()
+      expect(screen.getByText('Test Recipe 2')).toBeInTheDocument()
     })
 
     it('shows recipe tags', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('pasta')
-      await expectToBeInDocument('dinner')
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('pasta')).toBeInTheDocument()
+      expect(screen.getByText('dinner')).toBeInTheDocument()
     })
   })
 
   describe('Interactions', () => {
     it('opens recipe wizard on new recipe click', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(<RecipeList />)
-
-      await expectToBeInDocument('New Recipe')
-
-      const newRecipeButton = screen.getByText('New Recipe')
-      await user.click(newRecipeButton)
-
-      await expectToBeInDocument('Create New Recipe')
+      const { user } = renderWithProviders(<RecipeList />)
+      await user.click(screen.getByText('New Recipe'))
+      expect(screen.getByText('Create New Recipe')).toBeInTheDocument()
     })
 
-    it('shows recipe actions on hover', async () => {
+    it('filters recipes by search query', async () => {
       const { user } = renderWithProviders(<RecipeList />)
+      const searchInput = screen.getByPlaceholderText('Search recipes...')
+      await user.type(searchInput, 'pasta')
+      expect(screen.getByText('Test Recipe 1')).toBeInTheDocument()
+      expect(screen.queryByText('Test Recipe 2')).not.toBeInTheDocument()
+    })
 
-      await waitFor(() => {
-        expect(screen.getByText('Test Recipe 1')).toBeInTheDocument()
-      })
+    it('sorts recipes by recently cooked', async () => {
+      const { user } = renderWithProviders(<RecipeList />)
+      const sortSelect = screen.getByLabelText('Sort recipes')
+      await user.selectOptions(sortSelect, 'Recently Cooked')
+      expect(screen.getByText('Test Recipe 1')).toBeInTheDocument()
+    })
 
-      // Find the first recipe card
-      const recipeCard = screen.getByTestId('recipe-card-1')
-      await user.hover(recipeCard)
+    it('handles recipe deletion', async () => {
+      const { user } = renderWithProviders(<RecipeList />)
+      await user.click(screen.getByLabelText('Delete Recipe 1'))
+      expect(screen.getByText('Delete Recipe?')).toBeInTheDocument()
+      await user.click(screen.getByText('Confirm'))
+      expect(screen.queryByText('Test Recipe 1')).not.toBeInTheDocument()
+    })
 
-      // Check if action buttons are visible
-      expect(screen.getByTestId('edit-button-1')).toBeVisible()
-      expect(screen.getByTestId('delete-button-1')).toBeVisible()
-      expect(screen.getByTestId('cook-button-1')).toBeVisible()
+    it('starts cooking session', async () => {
+      const { user } = renderWithProviders(<RecipeList />)
+      await user.click(screen.getByLabelText('Cook Recipe 1'))
+      expect(screen.getByText('Step 1: Do something')).toBeInTheDocument()
     })
   })
 
-  describe('Error State', () => {
-    beforeEach(() => {
-      // Mock the API to return an error
-      jest.mock('@/utils/api', () => ({
-        api: {
-          recipe: {
-            getAll: {
-              useQuery: () => ({
-                data: null,
-                isLoading: false,
-                error: new Error('Failed to fetch recipes'),
-                isError: true,
-              }),
-            },
-          },
-        },
-      }))
-    })
-
-    afterEach(() => {
-      jest.restoreAllMocks()
-    })
-
+  describe('Error States', () => {
     it('shows error message', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeList />)
-      await expectToBeInDocument('No recipes found')
+      // Mock API error
+      jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Failed to fetch'))
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('Error loading recipes')).toBeInTheDocument()
+    })
+
+    it('handles empty state', async () => {
+      // Mock empty recipe list
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce({ recipes: [] })
+      renderWithProviders(<RecipeList />)
+      expect(screen.getByText('No recipes found')).toBeInTheDocument()
     })
   })
 })

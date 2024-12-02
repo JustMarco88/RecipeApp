@@ -1,74 +1,80 @@
-import { type Recipe as PrismaRecipe } from "@prisma/client";
-
 export interface RecipeIngredient {
-  name: string;
-  amount: number;
-  unit: string;
-}
-
-export interface Ingredient extends RecipeIngredient {}
-
-export interface Recipe extends Omit<PrismaRecipe, 'timers'> {
-  cookingHistory?: CookingHistory[];
-  timers?: RecipeTimer[] | string | null;
-}
-
-export interface CookingHistory {
-  id: string;
-  recipeId: string;
-  recipe: Recipe;
-  startedAt: Date;
-  completedAt: Date | null;
-  currentStep: number;
-  actualTime: number | null;
-  servingsCooked: number | null;
-  notes: string | null;
-  stepFeedback: string | null;
-  createdAt: Date;
-}
-
-export interface RecipeImprovement {
-  improvedSteps: string[];
-  summary: string;
-  tips: string[];
-}
-
-export interface RecipeSuggestion {
-  ingredients: Array<{
-    name: string;
-    amount: number;
-    unit: string;
-  }>;
-  instructions: string[];
-  prepTime: number;
-  cookTime: number;
-  difficulty: "Easy" | "Medium" | "Hard";
-  cuisineType: string;
-  tags: string[];
-  timers?: Record<string, number>;
+  name: string
+  amount: number
+  unit: string
+  checked?: boolean
 }
 
 export interface RecipeTimer {
-  id: string;
-  name: string;
-  duration: number; // in seconds
-  stepIndex: number;
-  description?: string;
-  category?: string;
+  id: string
+  name: string
+  duration: number
+  isActive: boolean
+  remaining: number
+  createdAt: Date
 }
 
-export interface TimerTemplate {
-  id: string;
-  name: string;
-  duration: number;
-  description?: string;
-  category: string;
+export interface Recipe {
+  id: string
+  title: string
+  ingredients: string
+  instructions: string
+  prepTime: number
+  cookTime: number
+  servings: number
+  difficulty: string
+  cuisineType: string
+  tags: string[]
+  imageUrl: string | null
+  nutrition: string | null
+  timers: string
+  userId: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface CookingHistory {
+  id: string
+  recipeId: string
+  userId: string
+  startedAt: Date
+  completedAt: Date | null
+  rating: number | null
+  notes: string | null
+  recipe: Recipe
+}
+
+export interface RecipeWithHistory extends Recipe {
+  history: CookingHistory[]
+  cookingHistory?: CookingHistory[]
+}
+
+export interface TimerInput {
+  name: string
+  duration: number
 }
 
 export interface TimerSuggestion {
-  name: string;
-  duration: number;
-  stepIndex: number;
-  description?: string;
-  category?: string;
-} 
+  name: string
+  duration: number
+  stepIndex: number
+  description?: string
+  category?: string
+}
+
+export interface RecipeImprovement {
+  improvedSteps: string[]
+  summary: string
+  tips: string[]
+}
+
+export interface RecipeSuggestion {
+  ingredients: RecipeIngredient[]
+  instructions: string[]
+  prepTime: number
+  cookTime: number
+  difficulty: 'Easy' | 'Medium' | 'Hard'
+  cuisineType: string
+  tags: string[]
+  timers?: Record<string, number>
+}

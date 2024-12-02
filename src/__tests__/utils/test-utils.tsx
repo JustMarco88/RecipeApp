@@ -7,6 +7,22 @@ import { createTRPCReact } from '@trpc/react-query'
 import { httpBatchLink } from '@trpc/client'
 import superjson from 'superjson'
 
+// At the top of the file, after imports
+const originalConsoleLog = console.log
+const originalConsoleDebug = console.debug
+
+beforeAll(() => {
+  // Suppress console.log and console.debug during tests
+  console.log = jest.fn()
+  console.debug = jest.fn()
+})
+
+afterAll(() => {
+  // Restore console.log and console.debug after tests
+  console.log = originalConsoleLog
+  console.debug = originalConsoleDebug
+})
+
 // Create a test QueryClient
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,30 +64,35 @@ const mockTrpcHooks = {
     },
     create: {
       useMutation: jest.fn(() => ({
+        mutateAsync: jest.fn(),
         mutate: jest.fn(),
         isLoading: false,
       })),
     },
     update: {
       useMutation: jest.fn(() => ({
+        mutateAsync: jest.fn(),
         mutate: jest.fn(),
         isLoading: false,
       })),
     },
     delete: {
       useMutation: jest.fn(() => ({
+        mutateAsync: jest.fn(),
         mutate: jest.fn(),
         isLoading: false,
       })),
     },
     updateStep: {
       useMutation: jest.fn(() => ({
+        mutateAsync: jest.fn(),
         mutate: jest.fn(),
         isLoading: false,
       })),
     },
     recordCooking: {
       useMutation: jest.fn(() => ({
+        mutateAsync: jest.fn(),
         mutate: jest.fn(),
         isLoading: false,
       })),
@@ -90,9 +111,7 @@ const mockTrpcHooks = {
 const AllTheProviders = ({ children }: { children: React.ReactNode }) => {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </trpc.Provider>
   )
 }
@@ -122,8 +141,8 @@ const renderWithProviders = (ui: React.ReactElement) => {
 
 // Mock tRPC hooks
 jest.mock('@/utils/api', () => ({
-  api: {
-    ...mockTrpcHooks,
+  api: mockTrpcHooks,
+  trpc: {
     useContext: () => ({
       client: trpcClient,
       invalidate: jest.fn(),

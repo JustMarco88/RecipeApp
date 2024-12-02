@@ -68,23 +68,15 @@ interface CookingStore {
   updateTimerRemaining: (timerId: string, remaining: number) => void
 }
 
-type StorageValue = {
-  state: {
-    sessions: Record<string, CookingSession>
-    activeSessionId: string | null
-  }
-  version: number
-}
-
 export const useCookingStore = create<CookingStore>()(
   persist(
     (set, get) => ({
       sessions: {},
       activeSessionId: null,
 
-      startSession: (recipe) => {
+      startSession: recipe => {
         console.log('Starting session:', { recipeId: recipe.id })
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [recipe.id]: {
@@ -103,9 +95,9 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      pauseSession: (recipeId) => {
+      pauseSession: recipeId => {
         console.log('Pausing session:', { recipeId })
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [recipeId]: {
@@ -118,9 +110,9 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      resumeSession: (recipeId) => {
+      resumeSession: recipeId => {
         console.log('Resuming session:', { recipeId })
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [recipeId]: {
@@ -139,7 +131,7 @@ export const useCookingStore = create<CookingStore>()(
         const session = sessions[recipeId]
         if (!session) return
 
-        set((state) => {
+        set(state => {
           const { [recipeId]: _, ...remainingSessions } = state.sessions
           return {
             sessions: remainingSessions,
@@ -149,18 +141,25 @@ export const useCookingStore = create<CookingStore>()(
 
         // Save store state to local storage
         const state = get()
-        localStorage.setItem('cooking-store', JSON.stringify({
-          state,
-          version: 0,
-        }))
+        localStorage.setItem(
+          'cooking-store',
+          JSON.stringify({
+            state,
+            version: 0,
+          })
+        )
       },
 
-      setCurrentStep: (step) => {
+      setCurrentStep: step => {
         const { activeSessionId, sessions } = get()
-        console.log('Setting current step:', { step, activeSessionId, sessionStatus: activeSessionId ? sessions[activeSessionId]?.status : null })
+        console.log('Setting current step:', {
+          step,
+          activeSessionId,
+          sessionStatus: activeSessionId ? sessions[activeSessionId]?.status : null,
+        })
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
@@ -176,7 +175,7 @@ export const useCookingStore = create<CookingStore>()(
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
@@ -195,7 +194,7 @@ export const useCookingStore = create<CookingStore>()(
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
@@ -215,7 +214,7 @@ export const useCookingStore = create<CookingStore>()(
         const session = sessions[recipeId]
         if (!session) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [recipeId]: {
@@ -244,7 +243,7 @@ export const useCookingStore = create<CookingStore>()(
           lastUpdatedAt: new Date().toISOString(),
         }
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [recipeId]: {
@@ -256,21 +255,23 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      startTimer: (timerId) => {
+      startTimer: timerId => {
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
               ...sessions[activeSessionId],
-              timers: sessions[activeSessionId].timers.map((timer) =>
-                timer.id === timerId ? { 
-                  ...timer, 
-                  isActive: true,
-                  lastUpdatedAt: new Date().toISOString(),
-                } : timer
+              timers: sessions[activeSessionId].timers.map(timer =>
+                timer.id === timerId
+                  ? {
+                      ...timer,
+                      isActive: true,
+                      lastUpdatedAt: new Date().toISOString(),
+                    }
+                  : timer
               ),
               lastActiveAt: new Date().toISOString(),
             },
@@ -278,19 +279,21 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      pauseTimer: (timerId) => {
+      pauseTimer: timerId => {
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
         const now = new Date()
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
               ...sessions[activeSessionId],
-              timers: sessions[activeSessionId].timers.map((timer) => {
+              timers: sessions[activeSessionId].timers.map(timer => {
                 if (timer.id === timerId && timer.isActive) {
-                  const elapsed = Math.floor((now.getTime() - new Date(timer.lastUpdatedAt).getTime()) / 1000)
+                  const elapsed = Math.floor(
+                    (now.getTime() - new Date(timer.lastUpdatedAt).getTime()) / 1000
+                  )
                   return {
                     ...timer,
                     isActive: false,
@@ -306,22 +309,24 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      resetTimer: (timerId) => {
+      resetTimer: timerId => {
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
               ...sessions[activeSessionId],
-              timers: sessions[activeSessionId].timers.map((timer) =>
-                timer.id === timerId ? {
-                  ...timer,
-                  remaining: timer.duration,
-                  isActive: false,
-                  lastUpdatedAt: new Date().toISOString(),
-                } : timer
+              timers: sessions[activeSessionId].timers.map(timer =>
+                timer.id === timerId
+                  ? {
+                      ...timer,
+                      remaining: timer.duration,
+                      isActive: false,
+                      lastUpdatedAt: new Date().toISOString(),
+                    }
+                  : timer
               ),
               lastActiveAt: new Date().toISOString(),
             },
@@ -329,11 +334,11 @@ export const useCookingStore = create<CookingStore>()(
         }))
       },
 
-      deleteTimer: (timerId) => {
+      deleteTimer: timerId => {
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
@@ -349,12 +354,12 @@ export const useCookingStore = create<CookingStore>()(
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
               ...sessions[activeSessionId],
-              timers: sessions[activeSessionId].timers.map(t => 
+              timers: sessions[activeSessionId].timers.map(t =>
                 t.id === timerId ? { ...t, name: newName } : t
               ),
               lastActiveAt: new Date().toISOString(),
@@ -367,18 +372,20 @@ export const useCookingStore = create<CookingStore>()(
         const { activeSessionId, sessions } = get()
         if (!activeSessionId) return
 
-        set((state) => ({
+        set(state => ({
           sessions: {
             ...state.sessions,
             [activeSessionId]: {
               ...sessions[activeSessionId],
-              timers: sessions[activeSessionId].timers.map(t => 
-                t.id === timerId ? { 
-                  ...t, 
-                  remaining,
-                  lastUpdatedAt: new Date().toISOString(),
-                  isActive: remaining > 0 && t.isActive
-                } : t
+              timers: sessions[activeSessionId].timers.map(t =>
+                t.id === timerId
+                  ? {
+                      ...t,
+                      remaining,
+                      lastUpdatedAt: new Date().toISOString(),
+                      isActive: remaining > 0 && t.isActive,
+                    }
+                  : t
               ),
               lastActiveAt: new Date().toISOString(),
             },
@@ -389,17 +396,16 @@ export const useCookingStore = create<CookingStore>()(
     {
       name: 'cooking-store',
       storage: {
-        getItem: (name: string): string | null => localStorage.getItem(name),
-        setItem: (name: string, value: string) => {
-          console.log('Saving cooking store:', { name, value: JSON.parse(value) })
-          localStorage.setItem(name, value)
+        getItem: (name: string) => {
+          const value = localStorage.getItem(name)
+          return value ? JSON.parse(value) : null
+        },
+        setItem: (name: string, value: unknown) => {
+          console.log('Saving cooking store:', { name, value })
+          localStorage.setItem(name, JSON.stringify(value))
         },
         removeItem: (name: string) => localStorage.removeItem(name),
       },
-      partialize: (state) => ({
-        sessions: state.sessions,
-        activeSessionId: state.activeSessionId,
-      }),
     }
   )
-) 
+)

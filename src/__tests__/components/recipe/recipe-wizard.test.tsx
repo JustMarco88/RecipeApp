@@ -1,190 +1,111 @@
+import React from 'react'
 import { screen } from '@testing-library/react'
-import { RecipeWizard } from '@/components/recipe/recipe-wizard'
 import { renderWithProviders } from '../../utils/test-utils'
+import { RecipeWizard } from '@/components/recipe/recipe-wizard'
+
+jest.mock('@/utils/logger')
 
 describe('RecipeWizard', () => {
-  describe('Name Step', () => {
-    const mockOnClose = jest.fn()
+  const mockOnClose = jest.fn()
 
-    beforeEach(() => {
-      mockOnClose.mockClear()
-    })
+  beforeEach(() => {
+    mockOnClose.mockClear()
+    jest.clearAllMocks()
+  })
 
-    it('renders the initial name input step', async () => {
-      const { expectToBeInDocument } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
-      await expectToBeInDocument('Create New Recipe')
-      await expectToBeInDocument('Enter recipe name...')
-    })
-
-    it('shows error when trying to proceed without a name', async () => {
+  describe('Form Rendering', () => {
+    it('renders the form with all fields', () => {
       renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
-
-      const nextButton = screen.getByRole('button', { name: /next/i })
-      expect(nextButton).toBeDisabled()
+      expect(screen.getByPlaceholderText('Recipe title')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Ingredients')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Instructions')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Prep time')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Cook time')).toBeInTheDocument()
     })
 
-    it('allows proceeding when a name is entered', async () => {
+    it('shows difficulty selector', () => {
+      renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      const difficultySelect = screen.getByRole('combobox')
+      expect(difficultySelect).toBeInTheDocument()
+      expect(screen.getByText('Easy')).toBeInTheDocument()
+      expect(screen.getByText('Medium')).toBeInTheDocument()
+      expect(screen.getByText('Hard')).toBeInTheDocument()
+    })
+  })
+
+  describe('Form Interactions', () => {
+    it('handles form submission', async () => {
       const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
 
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe')
+      await user.type(screen.getByPlaceholderText('Recipe title'), 'Test Recipe')
+      await user.type(screen.getByPlaceholderText('Ingredients'), 'Ingredient 1\nIngredient 2')
+      await user.type(screen.getByPlaceholderText('Instructions'), 'Step 1\nStep 2')
+      await user.type(screen.getByPlaceholderText('Prep time'), '30')
+      await user.type(screen.getByPlaceholderText('Cook time'), '45')
+      await user.selectOptions(screen.getByRole('combobox'), 'Medium')
 
-      const nextButton = screen.getByRole('button', { name: /next/i })
-      expect(nextButton).toBeEnabled()
-    })
-
-    it('proceeds to method selection on Enter key', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      await expectToBeInDocument("I'll write it myself")
-      await expectToBeInDocument('Help me with AI')
-    })
-
-    it('closes when clicking the close button', async () => {
-      const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
-
-      const closeButton = screen.getByRole('button', { name: /close/i })
-      await user.click(closeButton)
-
+      await user.click(screen.getByText('Create Recipe'))
       expect(mockOnClose).toHaveBeenCalled()
     })
-  })
 
-  describe('Method Selection Step', () => {
-    const mockOnClose = jest.fn()
-
-    it('displays both manual and AI options', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      await expectToBeInDocument("I'll write it myself")
-      await expectToBeInDocument('Help me with AI')
+    it('handles form cancellation', async () => {
+      const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      await user.click(screen.getByText('Cancel'))
+      expect(mockOnClose).toHaveBeenCalled()
     })
 
-    it('navigates to AI requirements when selecting AI option', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      await expectToBeInDocument('Number of Servings')
-      await expectToBeInDocument('Dietary Restrictions')
+    it('validates required fields', async () => {
+      const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      await user.click(screen.getByText('Create Recipe'))
+      expect(screen.getByText('Title is required')).toBeInTheDocument()
+      expect(screen.getByText('Ingredients are required')).toBeInTheDocument()
+      expect(screen.getByText('Instructions are required')).toBeInTheDocument()
     })
 
-    it('navigates back to name step', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const backButton = screen.getByRole('button', { name: /back/i })
-      await user.click(backButton)
-
-      await expectToBeInDocument('Create New Recipe')
+    it('validates numeric fields', async () => {
+      const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      await user.type(screen.getByPlaceholderText('Prep time'), '-1')
+      await user.type(screen.getByPlaceholderText('Cook time'), 'abc')
+      await user.click(screen.getByText('Create Recipe'))
+      expect(screen.getByText('Prep time must be positive')).toBeInTheDocument()
+      expect(screen.getByText('Cook time must be a number')).toBeInTheDocument()
     })
   })
 
-  describe('AI Requirements Step', () => {
-    const mockOnClose = jest.fn()
-
-    it('displays AI requirement form fields', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      await expectToBeInDocument('Number of Servings')
-      await expectToBeInDocument('Dietary Restrictions')
-      await expectToBeInDocument('Preferences & Notes')
-      await expectToBeInDocument('Difficulty Level')
-    })
-
-    it('allows setting servings', async () => {
+  describe('AI Integration', () => {
+    it('handles AI recipe generation', async () => {
       const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      const servingsInput = screen.getByRole('spinbutton')
-      await user.clear(servingsInput)
-      await user.type(servingsInput, '6')
-
-      expect(servingsInput).toHaveValue(6)
+      await user.type(screen.getByPlaceholderText('Recipe description'), 'A simple pasta dish')
+      await user.click(screen.getByText('Generate with AI'))
+      expect(screen.getByText('Generating recipe...')).toBeInTheDocument()
     })
 
-    it('allows selecting dietary restrictions', async () => {
+    it('handles AI generation errors', async () => {
       const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      // Mock AI error
+      jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('AI service unavailable'))
 
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      const selectButton = screen.getByRole('combobox')
-      await user.click(selectButton)
-
-      const veganOption = screen.getByText('Vegan')
-      await user.click(veganOption)
-
-      expect(screen.getByText('Vegan')).toBeInTheDocument()
+      await user.type(screen.getByPlaceholderText('Recipe description'), 'A simple pasta dish')
+      await user.click(screen.getByText('Generate with AI'))
+      expect(screen.getByText('Failed to generate recipe')).toBeInTheDocument()
     })
+  })
 
-    it('allows entering preferences', async () => {
+  describe('Image Upload', () => {
+    it('handles image upload', async () => {
       const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      const textarea = screen.getByPlaceholderText(/specific preferences/i)
-      await user.type(textarea, 'Extra spicy')
-
-      expect(textarea).toHaveValue('Extra spicy')
+      const file = new File(['test'], 'test.jpg', { type: 'image/jpeg' })
+      const input = screen.getByLabelText('Upload image')
+      await user.upload(input, file)
+      expect(screen.getByText('test.jpg')).toBeInTheDocument()
     })
 
-    it('navigates back to method selection', async () => {
-      const { user, expectToBeInDocument } = renderWithProviders(
-        <RecipeWizard onClose={mockOnClose} />
-      )
-
-      const input = screen.getByPlaceholderText('Enter recipe name...')
-      await user.type(input, 'Test Recipe{Enter}')
-
-      const aiButton = await screen.findByText('Help me with AI')
-      await user.click(aiButton)
-
-      const backButton = screen.getByRole('button', { name: /back/i })
-      await user.click(backButton)
-
-      await expectToBeInDocument("I'll write it myself")
-      await expectToBeInDocument('Help me with AI')
+    it('validates image file type', async () => {
+      const { user } = renderWithProviders(<RecipeWizard onClose={mockOnClose} />)
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' })
+      const input = screen.getByLabelText('Upload image')
+      await user.upload(input, file)
+      expect(screen.getByText('Invalid file type')).toBeInTheDocument()
     })
   })
 })
