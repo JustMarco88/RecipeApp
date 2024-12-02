@@ -128,9 +128,9 @@ The application uses a PostgreSQL database with the following main entities:
 
 1. Code Quality Setup
 
-   - [ ] ESLint and Prettier configuration
-   - [ ] Git hooks for code quality
-   - [ ] TypeScript strict mode
+   - [x] ESLint and Prettier configuration
+   - [x] Git hooks for code quality
+   - [x] TypeScript strict mode
 
 2. Basic Testing
 
